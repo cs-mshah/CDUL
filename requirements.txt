@@ -1,0 +1,5 @@
+torch>=2.0.0
+torchvision
+lightning>=2.0.0
+git+https://github.com/openai/CLIP.git
+lovely-tensors
