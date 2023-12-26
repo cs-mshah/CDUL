@@ -39,8 +39,8 @@ def main():
     metric.reset()
     
     print(f'classwise_ap: {AP_per_class}')
-    mAP = torch.mean(AP_per_class.values())
-    print(f'mAP: {mAP}')
+    mAP = torch.mean(torch.tensor(list(AP_per_class.values())))
+    print(f'mAP: {mAP.item()}')
     
 
 if __name__=='__main__':

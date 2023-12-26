@@ -217,7 +217,7 @@ class CLIPCache:
             image = image.unsqueeze(0)
         image_features = self.model.encode_image(image)
         image_features /= image_features.norm(dim=-1, keepdim=True)
-        similarity_matrix = (100.0 * image_features @ self.text_features.T)
+        similarity_matrix = (image_features @ self.text_features.T)
         return F.softmax(similarity_matrix / self.temperature, dim=-1)
 
     def save(self, mode: str = 'global'):

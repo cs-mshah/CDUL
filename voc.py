@@ -46,8 +46,8 @@ def main():
             image_features: Tensor = model.encode_image(image_input)
 
         image_features /= image_features.norm(dim=-1, keepdim=True)
-        similarity_matrix = (100.0 * image_features @ text_features.T)
-        temperature = 1.0
+        similarity_matrix = (image_features @ text_features.T)
+        temperature = model.logit_scale.data
         similarity = F.softmax(similarity_matrix / temperature, dim=-1)
         metric.update(similarity, labels)
 
@@ -55,8 +55,8 @@ def main():
     metric.reset()
     
     print(f'classwise_ap: {AP_per_class}')
-    mAP = torch.mean(AP_per_class.values())
-    print(f'mAP: {mAP}')
+    mAP = torch.mean(torch.tensor(list(AP_per_class.values())))
+    print(f'mAP: {mAP.item()}')
     
 
 if __name__=='__main__':
