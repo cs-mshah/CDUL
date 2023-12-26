@@ -16,7 +16,6 @@ from utils import get_categories, VOCLabelTransform
 
 def main():
     
-    # indexing depends of index of label in object_categories
     object_categories = get_categories(os.path.join(os.environ['DATASETS_ROOT'], 'VOCdevkit/VOC2012/ImageSets/Main'))
     print(object_categories)
     target_transform = VOCLabelTransform(object_categories, exclude_difficult=False)
@@ -24,7 +23,7 @@ def main():
     # Load the model
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model, preprocess = clip.load('RN50x64', device)
-    model = model.float() # important: https://github.com/openai/CLIP/issues/144
+    model = model.float() # IMPORTANT: https://github.com/openai/CLIP/issues/144
     text_inputs = torch.cat([clip.tokenize(f"a photo of a {c}") for c in object_categories]).to(device)
     
     with torch.no_grad():
@@ -52,9 +51,13 @@ def main():
         similarity = F.softmax(similarity_matrix / temperature, dim=-1)
         metric.update(similarity, labels)
 
-    
-    print(f'class_ap: {metric.compute()}')
+    AP_per_class = metric.compute()
     metric.reset()
+    
+    print(f'classwise_ap: {AP_per_class}')
+    mAP = torch.mean(AP_per_class.values())
+    print(f'mAP: {mAP}')
+    
 
 if __name__=='__main__':
     main()

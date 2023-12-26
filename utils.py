@@ -5,9 +5,9 @@ from torch import Tensor
 import torch
 import torch.nn.functional as F
 import numpy as np
-from torchvision.datasets import VOCDetection
 import clip
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import ToTensor
 import lovely_tensors as lt
 lt.monkey_patch()
 
@@ -108,12 +108,14 @@ class VOCLabelTransform:
     def global_label(self, target) -> Tensor:
         """returns soft global saved vector
         """
-        raise NotImplementedError
+        tensor_location = os.path.join(self.saved_dir, 'global', self.filename_label(target).split('.')[0] + '.pt')
+        return torch.load(tensor_location, map_location=torch.device('cpu'))
     
     def aggregated_label(self, target) -> Tensor:
         """returns soft aggregation saved vector
         """
-        raise NotImplementedError
+        tensor_location = os.path.join(self.saved_dir, 'aggregate', self.filename_label(target).split('.')[0] + '.pt')
+        return torch.load(tensor_location, map_location=torch.device('cpu'))
     
     def final_label(self, target) -> Tensor:
         """returns initial pseudo label
@@ -121,12 +123,56 @@ class VOCLabelTransform:
         return 0.5 * (self.global_label(target) + self.aggregated_label(target))
 
 
+class TileCropDataset(Dataset):
+    def __init__(self, dataset: Dataset, tile_size:tuple = (3, 3)):
+        self.dataset = dataset
+        self.tile_size = tile_size
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def generate_tiles(self, img):
+        # Get image dimensions
+        img_height, img_width = img.shape[1:]
+
+        # Calculate number of tiles along each dimension
+        num_tiles_height = img_height // self.tile_size[0]
+        num_tiles_width = img_width // self.tile_size[1]
+
+        # Initialize list to store tiles
+        tiles = []
+
+        # Iterate over tiles and store them in a list
+        for i in range(num_tiles_height):
+            for j in range(num_tiles_width):
+                # Calculate tile coordinates
+                start_h = i * self.tile_size[0]
+                end_h = start_h + self.tile_size[0]
+                start_w = j * self.tile_size[1]
+                end_w = start_w + self.tile_size[1]
+
+                # Crop the tile
+                tile = img[:, start_h:end_h, start_w:end_w]
+
+                # Append the tile to the list
+                tiles.append(tile)
+
+        return torch.stack(tiles)
+    
+    def __getitem__(self, idx):
+        original_image, target = self.dataset[idx]
+        original_image = ToTensor()(original_image)
+        tiles = self.generate_tiles(original_image)
+        return (tiles, target)
+
 
 class CLIPCache:
-    def __init__(self, dataset: VOCDetection, thresh: float, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, device: str = 'cuda'):
+    def __init__(self, dataset: Dataset, object_categories: List[str], save_root: str, thresh: float = 0.5, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, device: str = 'cuda'):
         """CLIPCache: Cache vectors after passing images through CLIP
         Args:
-            dataset (VOCDetection): dataset object
+            dataset (Dataset): dataset object
+            object_categories (List[str]): categories in dataset (labels)
+            save_root (str): directory to save cached vectors
             thresh (float): threshold parameter (sec. 3.1.3)
             snippet_size (int): size of snippet image
             clip_model (str): CLIP vision encoder model used
@@ -134,19 +180,23 @@ class CLIPCache:
             device (str): device to run CLIP on
         """
         self.dataset = dataset
+        self.object_categories = object_categories
+        self.save_root = save_root
         self.thresh = thresh
         self.temperature = temperature
         self.snippet_size = snippet_size
         self.batch_size = batch_size
-        
         self.device = device
-        self.model, _ = clip.load(clip_model, device)
+        
+        # Sec 3.1.3
+        self.alpha = None
+        self.beta = None
+        
+        self.model, self.preprocess = clip.load(clip_model, device)
         self.model = self.model.float() # IMPORTANT: https://github.com/openai/CLIP/issues/144
         
-        self.object_categories = get_categories(os.path.join(self.dataset.root, 'VOCdevkit/VOC2012/ImageSets/Main'))
-        
         self.text_features = self._text_encode()
-        self.save_root = os.path.join(self.dataset.root, f"VOCdevkit/VOC2012/clip_cache/{clip_model}_{self.snippet_size}")
+        self.save_root = os.path.join(self.save_root, f"clip_cache/{clip_model}_{self.snippet_size}")
         os.makedirs(os.path.join(self.save_root, 'global'), exist_ok=True)
         os.makedirs(os.path.join(self.save_root, 'aggregate'), exist_ok=True)
         
@@ -173,25 +223,57 @@ class CLIPCache:
     def save(self, mode: str = 'global'):
         """save CLIP encoded vectors
         """
+        if mode == 'global':
+            self._save_global()
+        else:
+            self._save_aggregate()
+        
+    def _save_global(self):
         dataloader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False, num_workers=4)
-        for batch_idx, (images, filenames) in enumerate(tqdm(dataloader, desc="Caching CLIP Similarity vectors")):
+        for _, (images, filenames) in enumerate(tqdm(dataloader, desc="Caching CLIP Similarity vectors")):
             images = images.to(self.device)
-            print(f'images: {images.v}')
-            if mode == 'global':
-                similarity = self._image_encode(images)
-                save_path = os.path.join(self.save_root, 'global')
-            else:
-                similarity = self.generate_snippets(images)
-                save_path = os.path.join(self.save_root, 'aggregate')
-
+            similarity = self._image_encode(images)
             for i, filename in enumerate(filenames):
                 file_save = os.path.basename(filename).split('.')[0] + '.pt'
-                torch.save(similarity[i], os.path.join(save_path, file_save))
-
-    def generate_snippets(self):
-        """generate snippets and return aggregate vector
+                torch.save(similarity[i], os.path.join(self.save_root, 'global', file_save))
+        
+    def _save_aggregate(self):
+        # remove PIL related transforms
+        self.preprocess.transforms.pop(2)
+        self.preprocess.transforms.pop(2)
+        for i in range(len(self.dataset)):
+            tiles, filename = self.dataset[i]
+            similarity = self._compute_in_batches(tiles)
+            file_save = os.path.basename(filename).split('.')[0] + '.pt'
+            torch.save(similarity, os.path.join(self.save_root, 'aggregate', file_save))
+    
+    def _compute_in_batches(self, images: Tensor) -> Tensor:
+        """compute similarity vectors for tiles of an image (*, C, snippet_size, snippet_size)
         """
-        raise NotImplementedError
+        # reset alpha and beta for each image
+        self._reset_alpha_beta()
+        # loop through images in batch size, pass through self.preprocess, update alpha, beta
+        for start_idx in range(0, images.size(0), self.batch_size):
+            end_idx = start_idx + self.batch_size
+            
+            # pass tiles in batch_size through clip image encoder
+            batch_tiles = self.preprocess(images[start_idx:end_idx])
+            batch_tiles = batch_tiles.to(self.device)
+            tiles_similarity = self._image_encode(batch_tiles)
+            self.alpha = torch.max(self.alpha, tiles_similarity.max(dim=0, keepdim=True).values)
+            self.beta = torch.min(self.beta, tiles_similarity.min(dim=0, keepdim=True).values)
+        
+        # Sec 3.1.3 Eq. (5)
+        gamma = (self.alpha >= self.thresh).float()
+        
+        # Sec 3.1.3 Eq. (6)
+        return self.alpha * gamma + self.beta * (1 - gamma)
+    
+    def _reset_alpha_beta(self):
+        """reset alpha and beta
+        """
+        self.alpha = torch.zeros([1, len(self.object_categories)], dtype=torch.float32, device=self.device)
+        self.beta = torch.ones([1, len(self.object_categories)], dtype=torch.float32, device=self.device)
     
     def _print_topk(self, similarity: Tensor, k: int = 5):
         """print topk categories, given the similarity vector
@@ -202,10 +284,9 @@ class CLIPCache:
             print(f'index: {index}, {self.object_categories[index]}: {100 * value.item():.2f}% ')
 
 
-
 def get_label_txt(label: torch.Tensor, object_categories: List) -> List[str]:
     """
-    Get Label text from numpy array encoded as 0/1 vector
+    Get Label text from one hot encoded Tensor
 
     Args:
         label: 0/1 encoded label
