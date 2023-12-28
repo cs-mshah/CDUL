@@ -5,6 +5,7 @@ from torchvision.datasets import VOCDetection
 from torch.utils.data.dataloader import DataLoader
 from torchmetrics.wrappers import ClasswiseWrapper
 from torchmetrics.classification import MultilabelAveragePrecision
+import clip
 import lovely_tensors as lt
 lt.monkey_patch()
 
@@ -18,15 +19,17 @@ def main():
     global_tensors_transform = VOCLabelTransform(transform_type='global', saved_dir=saved_dir)
     one_hot_transform = VOCLabelTransform(object_categories)
     
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    _, preprocess = clip.load('RN50x64', device)
+    
     # evaluate the cached global similarity vectors obtained from CLIP
-    predicted_dataset = VOCDetection(root=os.environ['DATASETS_ROOT'], year = '2012',image_set='val', target_transform=global_tensors_transform)
-    target_dataset = VOCDetection(root=os.environ['DATASETS_ROOT'], year = '2012',image_set='val', target_transform=one_hot_transform)
+    predicted_dataset = VOCDetection(root=os.environ['DATASETS_ROOT'], year = '2012',image_set='val', transform=preprocess, target_transform=global_tensors_transform)
+    target_dataset = VOCDetection(root=os.environ['DATASETS_ROOT'], year = '2012',image_set='val', transform=preprocess, target_transform=one_hot_transform)
     
     batch_size = 8
     predict_dataloader = DataLoader(predicted_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     target_dataloader = DataLoader(target_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
     metric = metric.to(device)
     

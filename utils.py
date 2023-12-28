@@ -235,25 +235,27 @@ class CLIPCache:
             similarity = self._image_encode(images)
             for i, filename in enumerate(filenames):
                 file_save = os.path.basename(filename).split('.')[0] + '.pt'
-                torch.save(similarity[i], os.path.join(self.save_root, 'global', file_save))
+                save_tensor = similarity[i].clone().detach().cpu()
+                torch.save(save_tensor, os.path.join(self.save_root, 'global', file_save))
         
     def _save_aggregate(self):
         # remove PIL related transforms
         self.preprocess.transforms.pop(2)
         self.preprocess.transforms.pop(2)
-        for i in range(len(self.dataset)):
+        for i in tqdm(range(len(self.dataset)), desc="Processing dataset"):
             tiles, filename = self.dataset[i]
             similarity = self._compute_in_batches(tiles)
             file_save = os.path.basename(filename).split('.')[0] + '.pt'
-            torch.save(similarity, os.path.join(self.save_root, 'aggregate', file_save))
+            save_tensor = similarity.clone().detach().cpu()
+            torch.save(save_tensor, os.path.join(self.save_root, 'aggregate', file_save))
     
     def _compute_in_batches(self, images: Tensor) -> Tensor:
         """compute similarity vectors for tiles of an image (*, C, snippet_size, snippet_size)
         """
         # reset alpha and beta for each image
         self._reset_alpha_beta()
-        # loop through images in batch size, pass through self.preprocess, update alpha, beta
-        for start_idx in range(0, images.size(0), self.batch_size):
+
+        for start_idx in tqdm(range(0, len(self.dataset), self.batch_size), desc="Processing dataset tiles"):
             end_idx = start_idx + self.batch_size
             
             # pass tiles in batch_size through clip image encoder
