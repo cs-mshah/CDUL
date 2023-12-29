@@ -1,0 +1,27 @@
+# @package _global_
+
+# specify default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  # - logger: wandb
+  - paths: voc2012
+  - data: voc2012
+  - hydra: default
+  - model: default
+
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - experiment: null
+
+  # config for hyperparameter optimization
+  # - hparams_search: null
+
+# task name, determines output directory path (for logs)
+task_name: "clip_cache"
+
+# config for creating clip cache vectors
+clip_cache:
+  batch_size: 8
+  thresh: 0.5
+  snippet_size: 3

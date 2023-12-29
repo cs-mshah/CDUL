@@ -1,0 +1,17 @@
+defaults:
+  - default
+  - _self_
+
+object_categories:
+  _target_: src.data.voc.get_categories
+  labels_dir: ${paths.labels_dir}
+
+target_transform:
+  _target_: src.data.voc.VOCLabelTransform
+
+dataset:
+  _target_: torchvision.datasets.VOCDetection
+  root: ${paths.data_dir}
+  image_set: val
+  year: "2012"
+  download: false # setting true ill donwload the dataset to root for the first time

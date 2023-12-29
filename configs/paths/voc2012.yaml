@@ -1,0 +1,6 @@
+defaults:
+  - default
+  - _self_
+
+labels_dir: ${paths.data_dir}/VOCdevkit/VOC2012/ImageSets/Main
+save_root: ${paths.data_dir}/VOCdevkit/VOC2012/ # for saving the CLIP cache
