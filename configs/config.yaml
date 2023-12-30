@@ -26,7 +26,7 @@ clip_cache:
   thresh: 0.5
   snippet_size: 3
   global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
-  aggregate_cache_dir: ${clip_cache.global_cache_dir}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
+  aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
 
 evaluate: 
   mode: "global" # mode of CLIP cache to evaluate
