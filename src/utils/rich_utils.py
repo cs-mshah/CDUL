@@ -13,11 +13,8 @@ def print_config_tree(
     print_order: Sequence[str] = (
         "data",
         "model",
-        "callbacks",
         "logger",
-        "trainer",
         "paths",
-        "extras",
     ),
     resolve: bool = True,
     save_to_file: bool = False,

@@ -55,12 +55,13 @@ class TileCropDataset(Dataset):
 
 
 class CLIPCache:
-    def __init__(self, dataset: Dataset, object_categories: List[str], save_root: str, thresh: float = 0.5, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, device: str = 'cuda'):
+    def __init__(self, dataset: Dataset, object_categories: List[str], global_cache_dir: str, aggregate_cache_dir: str, thresh: float = 0.5, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, device: str = 'cuda'):
         """CLIPCache: Cache vectors after passing images through CLIP
         Args:
             dataset (Dataset): dataset object
             object_categories (List[str]): categories in dataset (labels)
-            save_root (str): directory to save cached vectors
+            global_cache_dir (str): directory to save global CLIP cached vectors
+            aggregate_cache_dir (str): directory to save aggregate CLIP cached vectors
             thresh (float): threshold parameter (sec. 3.1.3)
             snippet_size (int): size of snippet image
             clip_model (str): CLIP vision encoder model used
@@ -69,7 +70,8 @@ class CLIPCache:
         """
         self.dataset = dataset
         self.object_categories = object_categories
-        self.save_root = save_root
+        self.global_cache_dir = global_cache_dir
+        self.aggregate_cache_dir = aggregate_cache_dir
         self.thresh = thresh
         self.temperature = temperature
         self.snippet_size = snippet_size
@@ -84,9 +86,8 @@ class CLIPCache:
         self.model = self.model.float() # IMPORTANT: https://github.com/openai/CLIP/issues/144
         
         self.text_features = self._text_encode()
-        self.save_root = os.path.join(self.save_root, f"clip_cache/{clip_model}_{self.snippet_size}")
-        os.makedirs(os.path.join(self.save_root, 'global'), exist_ok=True)
-        os.makedirs(os.path.join(self.save_root, 'aggregate'), exist_ok=True)
+        os.makedirs(global_cache_dir, exist_ok=True)
+        os.makedirs(aggregate_cache_dir, exist_ok=True)
         
     @torch.no_grad()
     def _text_encode(self) -> Tensor:
@@ -123,8 +124,8 @@ class CLIPCache:
             similarity = self._image_encode(images)
             for i, filename in enumerate(filenames):
                 file_save = os.path.basename(filename).split('.')[0] + '.pt'
-                save_tensor = similarity[i].clone().detach().cpu()
-                torch.save(save_tensor, os.path.join(self.save_root, 'global', file_save))
+                save_tensor = similarity[i]
+                torch.save(save_tensor, os.path.join(self.global_cache_dir, file_save))
         
     def _save_aggregate(self):
         # remove PIL related transforms
@@ -134,8 +135,8 @@ class CLIPCache:
             tiles, filename = self.dataset[i]
             similarity = self._compute_in_batches(tiles)
             file_save = os.path.basename(filename).split('.')[0] + '.pt'
-            save_tensor = similarity.clone().detach().cpu()
-            torch.save(save_tensor, os.path.join(self.save_root, 'aggregate', file_save))
+            save_tensor = similarity
+            torch.save(save_tensor, os.path.join(self.aggregate_cache_dir, file_save))
     
     def _compute_in_batches(self, images: Tensor) -> Tensor:
         """compute similarity vectors for tiles of an image (*, C, snippet_size, snippet_size)

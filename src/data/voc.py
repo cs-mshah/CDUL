@@ -34,18 +34,20 @@ def get_categories(labels_dir: str) -> List[str]:
 
 
 class VOCLabelTransform:
-    def __init__(self, object_categories: str | None = None, exclude_difficult: bool = False, transform_type: str = 'one_hot', saved_dir: str = None):
+    def __init__(self, object_categories: List | None = None, exclude_difficult: bool = False, transform_type: str = 'one_hot', global_cache_dir: str = None, aggregate_cache_dir: str = None):
         """VOC Label Transform
         Args:
             object_categories (list): List of object categories.
             exclude_difficult (bool): If True, exclude objects labeled as difficult (for one-hot).
             transform_type (VOCLabelTransformType): Type of label transform to apply.
-            saved_dir (str): Directory to fetch the saved label tensors.
+            global_cache_dir (str): Directory to fetch the global cached tensors.
+            aggregate_cache_dir (str): Directory to fetch the aggregate cached tensors.
         """
         self.object_categories = object_categories
         self.exclude_difficult = exclude_difficult
         self.transform_type = transform_type
-        self.saved_dir = saved_dir
+        self.global_cache_dir = global_cache_dir
+        self.aggregate_cache_dir = aggregate_cache_dir
 
     def __call__(self, target: Dict):
         """
@@ -104,13 +106,13 @@ class VOCLabelTransform:
     def global_label(self, target) -> Tensor:
         """returns soft global saved vector
         """
-        tensor_location = os.path.join(self.saved_dir, 'global', self.filename_label(target).split('.')[0] + '.pt')
+        tensor_location = os.path.join(self.global_cache_dir, self.filename_label(target).split('.')[0] + '.pt')
         return torch.load(tensor_location, map_location=torch.device('cpu'))
     
     def aggregated_label(self, target) -> Tensor:
         """returns soft aggregation saved vector
         """
-        tensor_location = os.path.join(self.saved_dir, 'aggregate', self.filename_label(target).split('.')[0] + '.pt')
+        tensor_location = os.path.join(self.aggregate_cache_dir, self.filename_label(target).split('.')[0] + '.pt')
         return torch.load(tensor_location, map_location=torch.device('cpu'))
     
     def final_label(self, target) -> Tensor:

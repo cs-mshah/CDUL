@@ -12,6 +12,6 @@ target_transform:
 dataset:
   _target_: torchvision.datasets.VOCDetection
   root: ${paths.data_dir}
-  image_set: val
+  image_set: val # since the task is unsupervised, we keep the split as val
   year: "2012"
-  download: false # setting true ill donwload the dataset to root for the first time
+  download: false # setting true will donwload the dataset to root for the first time

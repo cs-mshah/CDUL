@@ -20,8 +20,15 @@ defaults:
 # task name, determines output directory path (for logs)
 task_name: "clip_cache"
 
-# config for creating clip cache vectors
+# config for creating CLIP cache vectors
 clip_cache:
   batch_size: 8
   thresh: 0.5
   snippet_size: 3
+  global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
+  aggregate_cache_dir: ${clip_cache.global_cache_dir}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
+
+evaluate: 
+  mode: "global" # mode of CLIP cache to evaluate
+  batch_size: 8
+  num_workers: 4
