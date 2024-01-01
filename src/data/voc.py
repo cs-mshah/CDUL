@@ -142,6 +142,7 @@ def get_label_txt(label: torch.Tensor, object_categories: List) -> List[str]:
 def download_dataset():
     """Download Pascal VOC 2012 dataset
     """
+    _ = VOCDetection(os.environ['DATASETS_ROOT'], year='2012', image_set='train', download=True)
     _ = VOCDetection(os.environ['DATASETS_ROOT'], year='2012', image_set='val', download=True)
 
 

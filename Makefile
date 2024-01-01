@@ -20,7 +20,7 @@ sync: ## Merge changes from main branch to your current branch
 train: ## Train the model
 	python src/train.py
 
-evalute: ## run evaluate script
+evaluate: ## run evaluate script
 	python src/evaluate.py
 
 clip_cache: ## create clip cache
