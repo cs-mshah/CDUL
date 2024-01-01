@@ -29,6 +29,20 @@ clip_cache:
   aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
 
 evaluate: 
-  mode: "global" # mode of CLIP cache to evaluate
+  mode: "global_onehot" # mode of CLIP cache to evaluate
   batch_size: 8
   num_workers: 4
+
+train:
+  seed: 42
+  model:
+    _target_: torchvision.models.resnet101
+    weights: DEFAULT
+  target_transform: global_onehot # '<pseudo label mode>_onehot'
+  batch_size: 8
+  num_workers: 4
+  device: cuda
+  optimizer:
+    _target_: torch.optim.Adam
+    lr: 1e-5
+  loss: torch.nn.KLDivLoss

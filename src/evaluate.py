@@ -25,25 +25,20 @@ def main(cfg: DictConfig):
     object_categories = hydra.utils.instantiate(cfg.data.object_categories)
 
     predict_transform = hydra.utils.instantiate(cfg.data.target_transform, 
+                                                object_categories=object_categories,
                                                 transform_type=cfg.evaluate.mode, 
                                                 global_cache_dir=cfg.clip_cache.global_cache_dir,
                                                 aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir)
     
-    one_hot_transform = hydra.utils.instantiate(cfg.data.target_transform, object_categories=object_categories)
-
-    # evaluate the cached similarity vectors obtained from CLIP based on mode (global, aggregate, final)
     predicted_dataset = hydra.utils.instantiate(cfg.data.dataset, transform=preprocess, target_transform=predict_transform)
-    target_dataset = hydra.utils.instantiate(cfg.data.dataset, transform=preprocess, target_transform=one_hot_transform)
     
     predict_dataloader = DataLoader(predicted_dataset, batch_size=cfg.evaluate.get("batch_size", 8), 
-                                    shuffle=False, num_workers=cfg.evaluate.get("num_workers", 4))
-    target_dataloader = DataLoader(target_dataset, batch_size=cfg.evaluate.get("batch_size", 8), 
                                     shuffle=False, num_workers=cfg.evaluate.get("num_workers", 4))
     
     metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
     metric = metric.to(device)
     
-    for (_, pred_labels), (_, target_labels) in tqdm(zip(predict_dataloader, target_dataloader), desc="Processing batch"):
+    for (_, (pred_labels, target_labels)) in tqdm(predict_dataloader, desc="Processing batch"):
         pred_labels = pred_labels.to(device)
         target_labels = target_labels.to(device)
         metric.update(pred_labels, target_labels)

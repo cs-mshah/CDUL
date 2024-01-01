@@ -10,3 +10,4 @@ wandb
 omegaconf
 rich
 loguru
+wandb

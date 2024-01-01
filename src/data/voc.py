@@ -34,7 +34,7 @@ def get_categories(labels_dir: str) -> List[str]:
 
 
 class VOCLabelTransform:
-    def __init__(self, object_categories: List | None = None, exclude_difficult: bool = False, transform_type: str = 'one_hot', global_cache_dir: str = None, aggregate_cache_dir: str = None):
+    def __init__(self, object_categories: List | None = None, exclude_difficult: bool = False, transform_type: str = 'onehot', global_cache_dir: str = None, aggregate_cache_dir: str = None):
         """VOC Label Transform
         Args:
             object_categories (list): List of object categories.
@@ -58,19 +58,31 @@ class VOCLabelTransform:
         Returns:
             target with transform type applied
         """
-        if self.transform_type == 'one_hot':
-            return self.one_hot(target)
-        elif self.transform_type == 'filename':
-            return self.filename_label(target)
-        elif self.transform_type == 'global':
-            return self.global_label(target)
-        elif self.transform_type == 'aggregate':
-            return self.aggregated_label(target)
-        elif self.transform_type == 'final':
-            return self.final_label(target)
+        
+        # if self.transform_type == 'onehot':
+        #     return self.onehot_label(target)
+        # elif self.transform_type == 'filename':
+        #     return self.filename_label(target)
+        # elif self.transform_type == 'global':
+        #     return self.global_label(target)
+        # elif self.transform_type == 'aggregate':
+        #     return self.aggregated_label(target)
+        # elif self.transform_type == 'final':
+        #     return self.final_label(target)
+        if '_' in self.transform_type:
+            transform_types = self.transform_type.split('_')
+            return tuple(getattr(self, f"{t}_label")(target) for t in transform_types)
+        
+        label_function_name = f"{self.transform_type}_label"
+        
+        if hasattr(self, label_function_name):
+            label_function = getattr(self, label_function_name)
+            return label_function(target)
+        # Handle the case where the transform_type is not recognized
+        raise ValueError(f"Unsupported transform_type: {self.transform_type}")
         
 
-    def one_hot(self, target) -> Tensor:
+    def onehot_label(self, target) -> Tensor:
         """
         return one hot encoded labels
         """
@@ -143,7 +155,6 @@ def download_dataset():
     """Download Pascal VOC 2012 dataset
     """
     _ = VOCDetection(os.environ['DATASETS_ROOT'], year='2012', image_set='train', download=True)
-    _ = VOCDetection(os.environ['DATASETS_ROOT'], year='2012', image_set='val', download=True)
 
 
 if __name__ == '__main__':
