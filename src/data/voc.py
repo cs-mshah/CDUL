@@ -59,16 +59,6 @@ class VOCLabelTransform:
             target with transform type applied
         """
         
-        # if self.transform_type == 'onehot':
-        #     return self.onehot_label(target)
-        # elif self.transform_type == 'filename':
-        #     return self.filename_label(target)
-        # elif self.transform_type == 'global':
-        #     return self.global_label(target)
-        # elif self.transform_type == 'aggregate':
-        #     return self.aggregated_label(target)
-        # elif self.transform_type == 'final':
-        #     return self.final_label(target)
         if '_' in self.transform_type:
             transform_types = self.transform_type.split('_')
             return tuple(getattr(self, f"{t}_label")(target) for t in transform_types)
@@ -78,7 +68,7 @@ class VOCLabelTransform:
         if hasattr(self, label_function_name):
             label_function = getattr(self, label_function_name)
             return label_function(target)
-        # Handle the case where the transform_type is not recognized
+
         raise ValueError(f"Unsupported transform_type: {self.transform_type}")
         
 

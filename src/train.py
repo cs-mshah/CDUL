@@ -1,10 +1,14 @@
 import hydra
 import copy
 import os
+from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
 import rootutils
 import wandb
 from loguru import logger as log
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torchvision.models import ResNet101_Weights
 from torch.utils.data import DataLoader
 from torchmetrics.wrappers import ClasswiseWrapper
@@ -18,8 +22,9 @@ from src.utils.utils import set_seed
 
 
 class Trainer:
-    def __init__(self, cfg):
-        object_categories = hydra.utils.instantiate(cfg.data.object_categories)
+    def __init__(self, cfg: DictConfig):
+        self.cfg = cfg
+        object_categories: list = hydra.utils.instantiate(cfg.data.object_categories)
         train_transform = val_transform = ResNet101_Weights.transforms
         
         # for defining the initial pseudo labels
@@ -51,20 +56,69 @@ class Trainer:
                                     shuffle=False, num_workers=cfg.train.get("num_workers", 4), 
                                     persistent_workers=False)
         
-        self.model = hydra.utils.instantiate(cfg.train.model)
+        self.model: nn.Module = hydra.utils.instantiate(cfg.train.model)
         self.model = self.model.to(cfg.train.device)
-        self.optimizer = hydra.utils.instantiate(cfg.train.optimizer, params=self.model.parameters())
+        self.optimizer: torch.optim.Optimizer = hydra.utils.instantiate(cfg.train.optimizer, params=self.model.parameters())
         
         self.train_metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
         self.train_metric = self.train_metric.to(cfg.train.device)
         
         self.val_metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
         self.val_metric = self.val_metric.to(cfg.train.device)
+        self.best_val_mAP = 0.0
         
-        self.loss = hydra.utils.instantiate(cfg.train.loss)
+        self.loss: nn.KLDivLoss = hydra.utils.instantiate(cfg.train.loss)
         
     def fit(self):
+        start_epoch = self.resume_checkpoint()
+        for epoch in range(start_epoch, self.cfg.train.max_epochs):
+            self.train(epoch)
+            val_mAP = self.validation(epoch)
+            self.save_checkpoint(epoch, val_mAP)
+            self.train_metric.reset()
+            self.val_metric.reset()
+            
+    def train(self, epoch: int):
         raise NotImplementedError
+    
+    @torch.inference_mode()
+    def validation(self, epoch: int) -> float:
+        raise NotImplementedError
+
+    def resume_checkpoint(self) -> int:
+        """Resume from a saved checkpoint
+
+        Returns:
+            checkpoint epoch (int): The epoch to start resuming training from
+        """
+        if self.cfg.resume.ckpt_path is not None:
+            assert os.path.isfile(
+                self.cfg.resume.ckpt_path), "Error: no checkpoint found!"
+            log.info(f'resuming from checkpoint')
+            self.cfg.paths.log_dir = os.path.dirname(self.cfg.resume.ckpt_path) # set output directory same as resume directory
+            checkpoint = torch.load(self.cfg.resume.ckpt_path)
+            model_state_dict = checkpoint['model_state_dict']
+            self.model.load_state_dict(model_state_dict, strict=True)
+            self.optimizer.load_state_dict(checkpoint['optim_state_dict'])
+            # TODO: load saved metric states
+            return checkpoint['epoch']
+        return 0
+    
+    def save_checkpoint(self, epoch: int, val_mAP: float):
+        if not self.cfg.train.enable_checkpointing:
+            return
+        # TODO: save metric states
+        save_dict = {
+            'epoch': epoch + 1,
+            'model_state_dict': self.model.state_dict(),
+            'optim_state_dict': self.optimizer.state_dict()
+        }
+        # f'epoch_{epoch+1}_val_mAP_{val_mAP}.ckpt'
+        ckpt_filename = os.path.join(self.cfg.paths.log_dir, 'last.ckpt')
+        torch.save(save_dict, ckpt_filename)
+        if val_mAP > self.best_val_mAP:
+            self.best_val_mAP = val_mAP
+            torch.save(save_dict, f'best_val_mAP_{val_mAP}.ckpt')
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="config.yaml")
@@ -78,6 +132,7 @@ def main(cfg: DictConfig) -> None:
     wandb_config = OmegaConf.to_container(
         cfg, resolve=True, throw_on_missing=True
     )
+    # TODO: fetch from cfg.logger
     wandb.init(entity=os.environ['WANDB_ENTITY'],
                project='CDUL',
                name=f'{cfg.task_name}',
