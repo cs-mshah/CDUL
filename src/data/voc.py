@@ -121,6 +121,8 @@ class VOCLabelTransform:
         """returns initial pseudo label
         """
         return 0.5 * (self.global_label(target) + self.aggregated_label(target))
+    
+    # TODO: return psuedo label as default if present
 
 
 def get_label_txt(label: torch.Tensor, object_categories: List) -> List[str]:

@@ -1,2 +1,4 @@
 clip:
   name: RN50x64
+resnet101:
+  _target_: src.models.resnet101.ResNet101

@@ -6,9 +6,22 @@ import torch
 import torch.nn.functional as F
 import clip
 from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms import ToTensor
+from torchvision.transforms import ToTensor, InterpolationMode, Normalize, Compose, CenterCrop, Resize
 import lovely_tensors as lt
 lt.monkey_patch()
+
+
+class ResNet101Transforms:
+    def __init__(self, resize_size=232, crop_size=224, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+        self.transforms = Compose([
+            Resize(resize_size, interpolation=InterpolationMode.BILINEAR),
+            CenterCrop(crop_size),
+            ToTensor(),
+            Normalize(mean=mean, std=std)
+        ])
+
+    def __call__(self, img):
+        return self.transforms(img)
 
 
 class TileCropDataset(Dataset):

@@ -27,6 +27,7 @@ clip_cache:
   snippet_size: 3
   global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
   aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
+  pseudo_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/pseudo
 
 evaluate: 
   mode: "global_onehot" # mode of CLIP cache to evaluate
@@ -35,21 +36,21 @@ evaluate:
 
 train:
   seed: 42
-  model:
-    _target_: torchvision.models.resnet101
-    weights: DEFAULT
-  target_transform: global_onehot # '<pseudo label mode>_onehot'
+  target_transform: filename_global_onehot # 'filename_<pseudo label mode>_onehot'
+  train_transform:
+    _target_: src.data.data.ResNet101Transforms
+  val_transform:
+    _target_: src.data.data.ResNet101Transforms
   batch_size: 8
   num_workers: 4
   device: cuda
   optimizer:
     _target_: torch.optim.Adam
     lr: 1e-5
-  loss: 
-    _target_: torch.nn.KLDivLoss
-    reduction: batchmean # see https://pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html#kldivloss
+  loss:
+    _target_: torchmetrics.regression.KLDivergence
+  sigma: 1
   enable_checkpointing: false
   resume:
     ckpt_path: null
   max_epochs: 20
-
