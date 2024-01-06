@@ -2,6 +2,7 @@ import math
 import hydra
 import copy
 import os
+import shutil
 from tqdm import tqdm
 from typing import Tuple
 from omegaconf import DictConfig, OmegaConf
@@ -13,7 +14,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchmetrics.regression import KLDivergence
-from torchmetrics.functional import kl_divergence
 from torchmetrics.wrappers import ClasswiseWrapper
 from torchmetrics.classification import MultilabelAveragePrecision
 import lovely_tensors as lt
@@ -21,7 +21,7 @@ lt.monkey_patch()
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.utils.rich_utils import print_config_tree
-from src.utils.utils import set_seed
+from src.utils.utils import set_seed, AverageMeter, Losses
 
 
 class Trainer:
@@ -81,6 +81,7 @@ class Trainer:
         for epoch in range(start_epoch, self.cfg.train.max_epochs):
             total_loss, train_mAP = self.train(epoch)
             val_mAP = self.validation(epoch)
+            wandb.log({'train/pred_pseudo_kl': total_loss, 'train/mAP': train_mAP, 'val/mAP': val_mAP})
             log.info(f'[epoch: {epoch+1}] train_loss KL(pred,pseudo): {total_loss}, train_mAP: {train_mAP}, val_mAP: {val_mAP}')
             self.save_checkpoint(epoch, val_mAP)
             self.train_metric.reset()
@@ -88,15 +89,10 @@ class Trainer:
             
     def train(self, epoch: int) -> float:
         self.model.train()
-        for batch_idx, (imgs, (filename, pseudo_labels, target_labels)) in tqdm(enumerate(self.train_dataloader), desc=f"[epoch: {epoch+1}] Training batch"):
-            
-            try:
-                imgs = imgs.to(self.device)
-                pseudo_labels = pseudo_labels.to(self.device)         
-                target_labels = target_labels.to(self.device)
-            except Exception as e:
-                log.error(f'[epoch: {epoch+1}] Issue loading: batch_idx: {batch_idx}, filename: {filename}')
-                continue
+        for (imgs, (filename, pseudo_labels, target_labels)) in tqdm(self.train_dataloader, desc=f"[epoch: {epoch+1}] Training batch"):
+            imgs = imgs.to(self.device)
+            pseudo_labels = pseudo_labels.to(self.device)         
+            target_labels = target_labels.to(self.device)
             
             preds = F.softmax(self.model(imgs), dim=-1)
             self.train_metric.update(preds, target_labels)
@@ -106,26 +102,28 @@ class Trainer:
             self.optimizer.zero_grad()
             kl_loss.backward()
             self.optimizer.step()
-            
+            # TODO: additionally monitor losses: pseudo_gt, pred_gt
             # update latent params of psuedo labels (Sec. 3.2 eq. 7)
-            with torch.no_grad():
-                preds = preds.detach()
-                pseudo_labels_loss = kl_divergence(pseudo_labels, preds)
-                # TODO: fix has no grad error
-                pseudo_labels_grad = torch.autograd.grad(pseudo_labels_loss, pseudo_labels)[0]
-                # set sigma to 1 (not specified in paper)
-                psi_yu = torch.exp(-0.5 * ((pseudo_labels - 0.5) / self.sigma)**2) / (self.sigma * math.sqrt(2 * math.pi))
-                latent_pseudo_labels = torch.log(pseudo_labels / (1 - pseudo_labels)) # sigmoid inverse
-                latent_pseudo_labels -= psi_yu * pseudo_labels_grad # eq. 7
-                pseudo_labels = torch.sigmoid(latent_pseudo_labels) # sigmoid
-                # update the pseudo labels in the dataset
-                self.update_pseudo_labels(filename, pseudo_labels)
+            pseudo_labels.requires_grad = True
+            pseudo_labels_loss = self.loss(pseudo_labels, preds)
+            pseudo_labels_grad = torch.autograd.grad(pseudo_labels_loss, pseudo_labels)[0]
+            
+            # set sigma to 1 (not specified in paper)
+            psi_yu = torch.exp(-0.5 * ((pseudo_labels - 0.5) / self.sigma)**2) / (self.sigma * math.sqrt(2 * math.pi))
+            latent_pseudo_labels = torch.log(pseudo_labels / (1 - pseudo_labels)) # sigmoid inverse
+            
+            # eq. 7
+            latent_pseudo_labels -= psi_yu * pseudo_labels_grad 
+            
+            # sigmoid; detach before saving to cache, else dataloader will throw error
+            pseudo_labels = torch.sigmoid(latent_pseudo_labels).clone().detach() 
+            # update the pseudo labels in the dataset
+            self.update_pseudo_labels(filename, pseudo_labels)
         
         total_loss = self.loss.compute()
         AP_per_class = self.train_metric.compute()
         mAP = torch.mean(torch.tensor(list(AP_per_class.values())))
-        # TODO: log to wandb
-        return total_loss, mAP.item()
+        return total_loss.item(), mAP.item()
     
     @torch.inference_mode()
     def validation(self, epoch: int) -> float:
@@ -139,7 +137,6 @@ class Trainer:
 
         AP_per_class = self.val_metric.compute()
         mAP = torch.mean(torch.tensor(list(AP_per_class.values())))
-        # TODO: log to wandb
         return mAP.item()
 
     def update_pseudo_labels(self, filename: Tuple[str], pseudo_labels: torch.Tensor):
@@ -171,9 +168,9 @@ class Trainer:
         else:
             # clear old cache if any and create new cache directory
             try:
-                os.rmdir(self.cfg.clip_cache.pseudo_cache_dir)
+                shutil.rmtree(self.cfg.clip_cache.pseudo_cache_dir)
                 log.warning(f'cleared old cache')
-            except:
+            except Exception as e:
                 log.info(f'no old pseudo label cache found')
             log.info(f"Creating pseudo label cache dir: {self.cfg.clip_cache.pseudo_cache_dir}")
             os.makedirs(self.cfg.clip_cache.pseudo_cache_dir, exist_ok=True)

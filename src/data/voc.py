@@ -147,10 +147,7 @@ class VOCLabelTransform:
         if self.pseudo_cache_dir is not None:
             tensor_location = self.get_tensor_location(self.pseudo_cache_dir, target)
             if os.path.exists(tensor_location):
-                try:
-                    return torch.load(tensor_location, map_location=torch.device('cpu'))
-                except Exception as e:
-                    log.error(f"Error loading pseudo label for {tensor_location}: {e}")
+                return torch.load(tensor_location, map_location=torch.device('cpu'))
 
 
 def get_label_txt(label: torch.Tensor, object_categories: List) -> List[str]:
