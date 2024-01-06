@@ -89,9 +89,14 @@ class Trainer:
     def train(self, epoch: int) -> float:
         self.model.train()
         for batch_idx, (imgs, (filename, pseudo_labels, target_labels)) in tqdm(enumerate(self.train_dataloader), desc=f"[epoch: {epoch+1}] Training batch"):
-            imgs = imgs.to(self.device)
-            pseudo_labels = pseudo_labels.to(self.device)         
-            target_labels = target_labels.to(self.device)
+            
+            try:
+                imgs = imgs.to(self.device)
+                pseudo_labels = pseudo_labels.to(self.device)         
+                target_labels = target_labels.to(self.device)
+            except Exception as e:
+                log.error(f'[epoch: {epoch+1}] Issue loading: batch_idx: {batch_idx}, filename: {filename}')
+                continue
             
             preds = F.softmax(self.model(imgs), dim=-1)
             self.train_metric.update(preds, target_labels)
@@ -186,12 +191,11 @@ class Trainer:
             'best_val_mAP': self.best_val_mAP
         }
         # f'epoch_{epoch+1}_val_mAP_{val_mAP}.ckpt'
-        ckpt_filename = os.path.join(self.cfg.paths.log_dir, 'last.ckpt')
-        torch.save(save_dict, ckpt_filename)
+        torch.save(save_dict, os.path.join(self.cfg.paths.output_dir, 'last.ckpt'))
         log.info(f'[epoch: {epoch+1}] saved checkpoint')
         if val_mAP > self.best_val_mAP:
             self.best_val_mAP = val_mAP
-            torch.save(save_dict, f'best.ckpt')
+            torch.save(save_dict, os.path.join(self.cfg.paths.output_dir, 'best.ckpt'))
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="config.yaml")
