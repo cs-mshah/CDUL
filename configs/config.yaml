@@ -17,7 +17,7 @@ defaults:
   # config for hyperparameter optimization
   # - hparams_search: null
 
-# task name, determines output directory path (for logs)
+# task name, determines output directory path (for logs) eg: [clip_cache, train, evaluate]
 task_name: "clip_cache"
 
 # config for creating CLIP cache vectors

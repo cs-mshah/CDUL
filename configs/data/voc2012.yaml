@@ -12,6 +12,13 @@ target_transform:
 dataset:
   _target_: torchvision.datasets.VOCDetection
   root: ${paths.data_dir}
-  image_set: train # change this during experiments
+  image_set: train # change this accordingly for evaluate
   year: "2012"
-  download: false # setting true will donwload the dataset to root for the first time
+  download: false
+
+val_dataset:
+  _target_: torchvision.datasets.VOCDetection
+  root: ${paths.data_dir}
+  image_set: val
+  year: "2012"
+  download: false

@@ -26,9 +26,9 @@ from src.utils.utils import set_seed
 
 class Trainer:
     def __init__(self, cfg: DictConfig):
-        self.cfg = cfg
-        self.sigma = cfg.train.sigma # sec 3.2 eq. 8
-        self.device = cfg.train.device
+        self.cfg: DictConfig = cfg
+        self.sigma: float = cfg.train.sigma # sec 3.2 eq. 8
+        self.device: str = cfg.train.device
         object_categories: list = hydra.utils.instantiate(cfg.data.object_categories)
         train_transform = hydra.utils.instantiate(cfg.train.train_transform)
         val_transform = hydra.utils.instantiate(cfg.train.val_transform)
@@ -38,7 +38,8 @@ class Trainer:
                                                 object_categories=object_categories,
                                                 transform_type=cfg.train.target_transform, 
                                                 global_cache_dir=cfg.clip_cache.global_cache_dir,
-                                                aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir)
+                                                aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir,
+                                                pseudo_cache_dir=cfg.clip_cache.pseudo_cache_dir)
         
         # used in the val dataset
         onehot_transform = hydra.utils.instantiate(cfg.data.target_transform, 
@@ -48,19 +49,16 @@ class Trainer:
         # train dataset with targets as (initial pseudo labels ('final', 'global', 'aggregate'), onehot ground truth)
         train_dataset = hydra.utils.instantiate(cfg.data.dataset, transform=train_transform, target_transform=target_transform)
         
-        val_dataset_cfg = copy.deepcopy(cfg.data.dataset)
-        val_dataset_cfg.image_set = 'val'
+        val_dataset_cfg = copy.deepcopy(cfg.data.val_dataset)
+        
         val_dataset = hydra.utils.instantiate(val_dataset_cfg, transform=val_transform, target_transform=onehot_transform)
         
-        # IMPORTANT: keep persistent_workers=False to change psuedo labels on the fly
         self.train_dataloader = DataLoader(train_dataset, 
                                     batch_size=cfg.train.get("batch_size", 8), 
-                                    shuffle=True, num_workers=cfg.train.get("num_workers", 4), 
-                                    persistent_workers=False)
+                                    shuffle=True, num_workers=cfg.train.get("num_workers", 4))
         self.val_dataloader = DataLoader(val_dataset, 
                                     batch_size=cfg.train.get("batch_size", 8), 
-                                    shuffle=False, num_workers=cfg.train.get("num_workers", 4), 
-                                    persistent_workers=False)
+                                    shuffle=False, num_workers=cfg.train.get("num_workers", 4))
         
         self.model: nn.Module = hydra.utils.instantiate(cfg.model.resnet101, num_labels=len(object_categories))
         self.model = self.model.to(self.device)
@@ -81,16 +79,16 @@ class Trainer:
     def fit(self):
         start_epoch = self.resume_checkpoint()
         for epoch in range(start_epoch, self.cfg.train.max_epochs):
-            total_loss, train_mAP = self.train()
-            val_mAP = self.validation()
-            log.info(f'epoch: {epoch+1}, train_loss KL(pred,pseudo): {total_loss}, train_mAP: {train_mAP}, val_mAP: {val_mAP}')
+            total_loss, train_mAP = self.train(epoch)
+            val_mAP = self.validation(epoch)
+            log.info(f'[epoch: {epoch+1}] train_loss KL(pred,pseudo): {total_loss}, train_mAP: {train_mAP}, val_mAP: {val_mAP}')
             self.save_checkpoint(epoch, val_mAP)
             self.train_metric.reset()
             self.val_metric.reset()
             
-    def train(self) -> float:
+    def train(self, epoch: int) -> float:
         self.model.train()
-        for batch_idx, (imgs, (filename, pseudo_labels, target_labels)) in tqdm(enumerate(self.train_dataloader), desc="Training batch"):
+        for batch_idx, (imgs, (filename, pseudo_labels, target_labels)) in tqdm(enumerate(self.train_dataloader), desc=f"[epoch: {epoch+1}] Training batch"):
             imgs = imgs.to(self.device)
             pseudo_labels = pseudo_labels.to(self.device)         
             target_labels = target_labels.to(self.device)
@@ -115,7 +113,7 @@ class Trainer:
                 latent_pseudo_labels = torch.log(pseudo_labels / (1 - pseudo_labels)) # sigmoid inverse
                 latent_pseudo_labels -= psi_yu * pseudo_labels_grad # eq. 7
                 pseudo_labels = torch.sigmoid(latent_pseudo_labels) # sigmoid
-                 # update the pseudo labels in the dataset
+                # update the pseudo labels in the dataset
                 self.update_pseudo_labels(filename, pseudo_labels)
         
         total_loss = self.loss.compute()
@@ -125,10 +123,10 @@ class Trainer:
         return total_loss, mAP.item()
     
     @torch.inference_mode()
-    def validation(self) -> float:
+    def validation(self, epoch: int) -> float:
         """calculate validation mAP"""
         self.model.eval()
-        for imgs, targets in tqdm(self.val_dataloader, desc="Validation batch"):
+        for imgs, targets in tqdm(self.val_dataloader, desc=f"[epoch: {epoch+1}] Validation batch"):
             imgs = imgs.to(self.device)
             targets = targets.to(self.device)
             preds = F.softmax(self.model(imgs), dim=-1)
@@ -140,7 +138,9 @@ class Trainer:
         return mAP.item()
 
     def update_pseudo_labels(self, filename: Tuple[str], pseudo_labels: torch.Tensor):
-        raise NotImplementedError
+        for i in range(len(filename)):
+            tensor_location = os.path.join(self.cfg.clip_cache.pseudo_cache_dir, filename[i].split('.')[0] + '.pt')
+            torch.save(pseudo_labels[i], tensor_location)
     
     def resume_checkpoint(self) -> int:
         """Resume from a saved checkpoint
@@ -148,9 +148,12 @@ class Trainer:
         Returns:
             checkpoint epoch (int): The epoch to start resuming training from
         """
+        start_epoch = 0
         if self.cfg.train.resume.ckpt_path is not None:
             assert os.path.isfile(
                 self.cfg.train.resume.ckpt_path), "Error: no checkpoint found!"
+            assert len(os.listdir(
+                self.cfg.clip_cache.pseudo_cache_dir)), "Cache directory is empty!"
             log.info(f'resuming from checkpoint')
             self.cfg.paths.log_dir = os.path.dirname(self.cfg.train.resume.ckpt_path) # set output directory same as resume directory
             checkpoint = torch.load(self.cfg.train.resume.ckpt_path)
@@ -159,8 +162,17 @@ class Trainer:
             self.optimizer.load_state_dict(checkpoint['optim_state_dict'])
             self.loss.load_state_dict(checkpoint['train_loss_state_dict'])
             self.best_val_mAP = checkpoint['best_val_mAP']
-            return checkpoint['epoch']
-        return 0
+            start_epoch = checkpoint['epoch']
+        else:
+            # clear old cache if any and create new cache directory
+            try:
+                os.rmdir(self.cfg.clip_cache.pseudo_cache_dir)
+                log.warning(f'cleared old cache')
+            except:
+                log.info(f'no old pseudo label cache found')
+            log.info(f"Creating pseudo label cache dir: {self.cfg.clip_cache.pseudo_cache_dir}")
+            os.makedirs(self.cfg.clip_cache.pseudo_cache_dir, exist_ok=True)
+        return start_epoch
     
     def save_checkpoint(self, epoch: int, val_mAP: float):
         """training checkpointing"""
@@ -176,6 +188,7 @@ class Trainer:
         # f'epoch_{epoch+1}_val_mAP_{val_mAP}.ckpt'
         ckpt_filename = os.path.join(self.cfg.paths.log_dir, 'last.ckpt')
         torch.save(save_dict, ckpt_filename)
+        log.info(f'[epoch: {epoch+1}] saved checkpoint')
         if val_mAP > self.best_val_mAP:
             self.best_val_mAP = val_mAP
             torch.save(save_dict, f'best.ckpt')

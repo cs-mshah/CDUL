@@ -4,6 +4,7 @@ from torch import Tensor
 import torch
 import numpy as np
 from torchvision.datasets import VOCDetection
+from loguru import logger as log
 import lovely_tensors as lt
 lt.monkey_patch()
 
@@ -34,7 +35,10 @@ def get_categories(labels_dir: str) -> List[str]:
 
 
 class VOCLabelTransform:
-    def __init__(self, object_categories: List | None = None, exclude_difficult: bool = False, transform_type: str = 'onehot', global_cache_dir: str = None, aggregate_cache_dir: str = None):
+    def __init__(self, object_categories: List | None = None, exclude_difficult: bool = False, transform_type: str = 'onehot', 
+                 global_cache_dir: str = None, 
+                 aggregate_cache_dir: str = None,
+                 pseudo_cache_dir: str = None):
         """VOC Label Transform
         Args:
             object_categories (list): List of object categories.
@@ -42,12 +46,14 @@ class VOCLabelTransform:
             transform_type (VOCLabelTransformType): Type of label transform to apply.
             global_cache_dir (str): Directory to fetch the global cached tensors.
             aggregate_cache_dir (str): Directory to fetch the aggregate cached tensors.
+            pseudo_cache_dir (str): Directory to fetch the pseudo label vectors during training. Set to None for all other cases.
         """
         self.object_categories = object_categories
         self.exclude_difficult = exclude_difficult
         self.transform_type = transform_type
         self.global_cache_dir = global_cache_dir
         self.aggregate_cache_dir = aggregate_cache_dir
+        self.pseudo_cache_dir = pseudo_cache_dir
 
     def __call__(self, target: Dict):
         """
@@ -103,26 +109,45 @@ class VOCLabelTransform:
         return one hot encoded label
         """
         return target['annotation']['filename']
-
     
+    def get_tensor_location(self, cache_dir: str, target) -> str:
+        """returns the tensor location based on the target
+        """
+        return os.path.join(cache_dir, self.filename_label(target).split('.')[0] + '.pt')
+
     def global_label(self, target) -> Tensor:
         """returns soft global saved vector
         """
-        tensor_location = os.path.join(self.global_cache_dir, self.filename_label(target).split('.')[0] + '.pt')
+        cache = self.pseudo_label(target)
+        if cache is not None:
+            return cache
+        tensor_location = self.get_tensor_location(self.global_cache_dir, target)
         return torch.load(tensor_location, map_location=torch.device('cpu'))
-    
+
     def aggregated_label(self, target) -> Tensor:
         """returns soft aggregation saved vector
         """
-        tensor_location = os.path.join(self.aggregate_cache_dir, self.filename_label(target).split('.')[0] + '.pt')
+        cache = self.pseudo_label(target)
+        if cache is not None:
+            return cache
+        tensor_location = self.get_tensor_location(self.aggregate_cache_dir, target)
         return torch.load(tensor_location, map_location=torch.device('cpu'))
     
     def final_label(self, target) -> Tensor:
         """returns initial pseudo label
         """
+        cache = self.pseudo_label(target)
+        if cache is not None:
+            return cache
         return 0.5 * (self.global_label(target) + self.aggregated_label(target))
     
-    # TODO: return psuedo label as default if present
+    def pseudo_label(self, target) -> Tensor:
+        """returns pseudo label stored during training
+        """
+        if self.pseudo_cache_dir is not None:
+            tensor_location = self.get_tensor_location(self.pseudo_cache_dir, target)
+            if os.path.exists(tensor_location):
+                return torch.load(tensor_location, map_location=torch.device('cpu'))
 
 
 def get_label_txt(label: torch.Tensor, object_categories: List) -> List[str]:
