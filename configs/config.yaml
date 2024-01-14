@@ -42,7 +42,7 @@ train:
   val_transform:
     _target_: src.data.data.ResNet101Transforms
   batch_size: 8
-  num_workers: 4
+  num_workers: 16
   device: cuda
   optimizer:
     _target_: torch.optim.Adam
@@ -53,4 +53,4 @@ train:
   enable_checkpointing: false
   resume:
     ckpt_path: null
-  max_epochs: 20
+  max_epochs: 50

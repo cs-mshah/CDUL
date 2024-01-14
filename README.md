@@ -19,6 +19,8 @@ WANDB_ENTITY=<wandb entity (username)>
 WANDB_PROJECT=CDUL
 ```
 
+Also export the above environment variables by adding them to `.bashrc`/`.zshrc`/by [conda env activation](https://guillaume-martin.github.io/saving-environment-variables-in-conda.html).
+
 ### Environment Setup
 
 ```shell

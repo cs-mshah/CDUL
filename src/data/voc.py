@@ -22,6 +22,7 @@ def get_categories(labels_dir: str) -> List[str]:
     """
 
     if not os.path.isdir(labels_dir):
+        log.error(f"Labels directory {labels_dir} does not exist")
         raise FileNotFoundError
 
     else:

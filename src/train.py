@@ -21,7 +21,7 @@ lt.monkey_patch()
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.utils.rich_utils import print_config_tree
-from src.utils.utils import set_seed, AverageMeter, Losses
+from src.utils.utils import set_seed
 
 
 class Trainer:
@@ -71,6 +71,10 @@ class Trainer:
         self.val_metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
         self.val_metric = self.val_metric.to(self.device)
         
+        # measure pseudo-label quality over epochs
+        self.pseudo_metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
+        self.pseudo_metric = self.pseudo_metric.to(self.device)
+        
         self.best_val_mAP = 0.0
         
         self.loss: KLDivergence = hydra.utils.instantiate(cfg.train.loss)
@@ -79,12 +83,13 @@ class Trainer:
     def fit(self):
         start_epoch = self.resume_checkpoint()
         for epoch in range(start_epoch, self.cfg.train.max_epochs):
-            total_loss, train_mAP = self.train(epoch)
+            total_loss, train_mAP, pseuso_mAP = self.train(epoch)
             val_mAP = self.validation(epoch)
-            wandb.log({'train/pred_pseudo_kl': total_loss, 'train/mAP': train_mAP, 'val/mAP': val_mAP})
-            log.info(f'[epoch: {epoch+1}] train_loss KL(pred,pseudo): {total_loss}, train_mAP: {train_mAP}, val_mAP: {val_mAP}')
+            wandb.log({'train/pred_pseudo_kl': total_loss, 'train/mAP': train_mAP, 'train/pseudo_mAP': pseuso_mAP, 'val/mAP': val_mAP})
+            log.info(f'[epoch: {epoch+1}] train_loss KL(pred,pseudo): {total_loss}, train_mAP: {train_mAP}, pseudo_mAP: {pseuso_mAP}, val_mAP: {val_mAP}')
             self.save_checkpoint(epoch, val_mAP)
             self.train_metric.reset()
+            self.pseudo_metric.reset()
             self.val_metric.reset()
             
     def train(self, epoch: int) -> float:
@@ -96,13 +101,14 @@ class Trainer:
             
             preds = F.softmax(self.model(imgs), dim=-1)
             self.train_metric.update(preds, target_labels)
+            self.pseudo_metric.update(pseudo_labels, target_labels)
             kl_loss = self.loss(preds, pseudo_labels)
             
             # train the network
             self.optimizer.zero_grad()
             kl_loss.backward()
             self.optimizer.step()
-            # TODO: additionally monitor losses: pseudo_gt, pred_gt
+            # TODO: additionally monitor losses: pseudo_gt, pred_gt (not required, already monitoring pseudo mAP)
             # update latent params of psuedo labels (Sec. 3.2 eq. 7)
             pseudo_labels.requires_grad = True
             pseudo_labels_loss = self.loss(pseudo_labels, preds)
@@ -123,7 +129,8 @@ class Trainer:
         total_loss = self.loss.compute()
         AP_per_class = self.train_metric.compute()
         mAP = torch.mean(torch.tensor(list(AP_per_class.values())))
-        return total_loss.item(), mAP.item()
+        pseudo_mAP = torch.mean(torch.tensor(list(self.pseudo_metric.compute().values())))
+        return total_loss.item(), mAP.item(), pseudo_mAP.item()
     
     @torch.inference_mode()
     def validation(self, epoch: int) -> float:
