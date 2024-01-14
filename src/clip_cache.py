@@ -21,38 +21,43 @@ def main(cfg: DictConfig) -> None:
     model, preprocess = clip.load(cfg.model.clip.name)
     temperature = model.logit_scale.data # get the CLIP learnt temperature
     
-    dataset = hydra.utils.instantiate(cfg.data.dataset, transform=preprocess, target_transform=target_transform)
-    
-    clip_cache = CLIPCache(dataset, 
-                           object_categories, 
-                           cfg.clip_cache.global_cache_dir,
-                           cfg.clip_cache.aggregate_cache_dir,
-                           thresh=cfg.clip_cache.get("thresh", 0.5), 
-                           temperature=temperature, 
-                           snippet_size=cfg.clip_cache.get("snippet_size", 3), 
-                           batch_size=cfg.clip_cache.get("batch_size", 8))
-    
-    # Section 3.1.1: save soft global similarity vectors
-    log.info("Saving global similarity vectors...")
-    clip_cache.save(mode='global')
+    if cfg.clip_cache.mode in ['global', 'all']:
+        dataset = hydra.utils.instantiate(cfg.data.dataset, transform=preprocess, target_transform=target_transform)
+        
+        clip_cache = CLIPCache(dataset, 
+                            object_categories, 
+                            cfg.clip_cache.global_cache_dir,
+                            cfg.clip_cache.aggregate_cache_dir,
+                            thresh=cfg.clip_cache.thresh, 
+                            temperature=temperature, 
+                            snippet_size=cfg.clip_cache.snippet_size, 
+                            batch_size=cfg.clip_cache.batch_size,
+                            num_workers=cfg.clip_cache.num_workers)
+        
+        # Section 3.1.1: save soft global similarity vectors
+        log.info("Saving global similarity vectors...")
+        clip_cache.save(mode='global')
 
-    dataset = hydra.utils.instantiate(cfg.data.dataset, target_transform=target_transform)
-    
-    # create a new dataset with tile crops
-    tile_crop_dataset = TileCropDataset(dataset)
-    
-    # Section 3.1.2, 3.1.3: save soft aggregation similarity vectors
-    clip_cache = CLIPCache(tile_crop_dataset, 
-                           object_categories, 
-                           cfg.clip_cache.global_cache_dir,
-                           cfg.clip_cache.aggregate_cache_dir,
-                           thresh=cfg.clip_cache.get("thresh", 0.5), 
-                           temperature=temperature, 
-                           snippet_size=cfg.clip_cache.get("snippet_size", 3), 
-                           batch_size=cfg.get("batch_size", 8))
-    
-    log.info("Saving soft aggregation similarity vectors...")
-    clip_cache.save(mode='aggregate')
+    if cfg.clip_cache.mode in ['aggregate', 'all']:
+        dataset = hydra.utils.instantiate(cfg.data.dataset, target_transform=target_transform)
+        
+        # create a new dataset with tile crops
+        sz = (cfg.clip_cache.snippet_size, cfg.clip_cache.snippet_size)
+        tile_crop_dataset = TileCropDataset(dataset, tile_size=sz)
+        
+        # Section 3.1.2, 3.1.3: save soft aggregation similarity vectors
+        clip_cache = CLIPCache(tile_crop_dataset, 
+                            object_categories, 
+                            cfg.clip_cache.global_cache_dir,
+                            cfg.clip_cache.aggregate_cache_dir,
+                            thresh=cfg.clip_cache.thresh, 
+                            temperature=temperature, 
+                            snippet_size=cfg.clip_cache.snippet_size,
+                            batch_size=cfg.clip_cache.batch_size,
+                            num_workers=cfg.clip_cache.num_workers)
+        
+        log.info("Saving soft aggregation similarity vectors...")
+        clip_cache.save(mode='aggregate')
 
 if __name__=='__main__':
     main()

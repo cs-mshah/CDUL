@@ -1,40 +1,35 @@
 # @package _global_
 
-# specify default configuration
-# order of defaults determines the order in which configs override each other
+# to execute this experiment run:
+# python src/clip_cache.py experiment=32_patch
+
 defaults:
-  - _self_
-  - logger: wandb
-  - paths: voc2012
-  - data: voc2012
-  - hydra: default
-  - model: default
+  - override /data: voc2012.yaml
+  - override /model: default.yaml
+  - override /paths: voc2012.yaml
+  - override /hydra: default.yaml
 
-  # experiment configs allow for version control of specific hyperparameters
-  # e.g. best hyperparameters for given model and datamodule
-  - experiment: null
-
-  # config for hyperparameter optimization
-  # - hparams_search: null
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
 
 # task name, determines output directory path (for logs) eg: [clip_cache, train, evaluate]
-task_name: "clip_cache"
+task_name: "clip_cache_64_patch"
 
 # config for creating CLIP cache vectors
 clip_cache:
-  mode: "all" # which cache to generate: [global, aggregate, all]
-  batch_size: 8
-  num_workers: 4
+  mode: "aggregate" # which cache to generate: [global, aggregate, all]
+  batch_size: 64
+  num_workers: 16
   thresh: 0.5
-  snippet_size: 3
+  snippet_size: 32
   global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
   aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
   pseudo_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/pseudo
 
 evaluate: 
-  mode: "global_onehot" # mode of CLIP cache to evaluate
+  mode: "aggregate_onehot" # mode of CLIP cache to evaluate
   batch_size: 8
-  num_workers: 4
+  num_workers: 16
 
 train:
   seed: 42

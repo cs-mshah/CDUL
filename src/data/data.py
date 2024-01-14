@@ -68,7 +68,7 @@ class TileCropDataset(Dataset):
 
 
 class CLIPCache:
-    def __init__(self, dataset: Dataset, object_categories: List[str], global_cache_dir: str, aggregate_cache_dir: str, thresh: float = 0.5, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, device: str = 'cuda'):
+    def __init__(self, dataset: Dataset, object_categories: List[str], global_cache_dir: str, aggregate_cache_dir: str, thresh: float = 0.5, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, num_workers:int = 16, device: str = 'cuda'):
         """CLIPCache: Cache vectors after passing images through CLIP
         Args:
             dataset (Dataset): dataset object
@@ -79,6 +79,7 @@ class CLIPCache:
             snippet_size (int): size of snippet image
             clip_model (str): CLIP vision encoder model used
             batch_size (int): batch size for processing through CLIP
+            num_workers (int): workers for the dataloader
             device (str): device to run CLIP on
         """
         self.dataset = dataset
@@ -89,6 +90,7 @@ class CLIPCache:
         self.temperature = temperature
         self.snippet_size = snippet_size
         self.batch_size = batch_size
+        self.num_workers = num_workers
         self.device = device
         
         # Sec 3.1.3
@@ -131,7 +133,7 @@ class CLIPCache:
             self._save_aggregate()
         
     def _save_global(self):
-        dataloader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False, num_workers=4)
+        dataloader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
         for _, (images, filenames) in enumerate(tqdm(dataloader, desc="Caching CLIP Similarity vectors")):
             images = images.to(self.device)
             similarity = self._image_encode(images)
@@ -157,7 +159,7 @@ class CLIPCache:
         # reset alpha and beta for each image
         self._reset_alpha_beta()
 
-        for start_idx in tqdm(range(0, len(self.dataset), self.batch_size), desc="Processing dataset tiles"):
+        for start_idx in tqdm(range(0, images.shape[0], self.batch_size), desc="Processing dataset tiles"):
             end_idx = start_idx + self.batch_size
             
             # pass tiles in batch_size through clip image encoder
