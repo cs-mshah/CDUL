@@ -27,7 +27,7 @@ clip_cache:
   pseudo_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/pseudo
 
 evaluate: 
-  mode: "aggregate_onehot" # mode of CLIP cache to evaluate
+  mode: "final_onehot" # mode of CLIP cache to evaluate
   batch_size: 8
   num_workers: 16
 

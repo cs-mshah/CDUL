@@ -139,7 +139,7 @@ class CLIPCache:
             similarity = self._image_encode(images)
             for i, filename in enumerate(filenames):
                 file_save = os.path.basename(filename).split('.')[0] + '.pt'
-                save_tensor = similarity[i]
+                save_tensor = similarity[i].squeeze()
                 torch.save(save_tensor, os.path.join(self.global_cache_dir, file_save))
         
     def _save_aggregate(self):
@@ -150,7 +150,7 @@ class CLIPCache:
             tiles, filename = self.dataset[i]
             similarity = self._compute_in_batches(tiles)
             file_save = os.path.basename(filename).split('.')[0] + '.pt'
-            save_tensor = similarity
+            save_tensor = similarity.squeeze()
             torch.save(save_tensor, os.path.join(self.aggregate_cache_dir, file_save))
     
     def _compute_in_batches(self, images: Tensor) -> Tensor:

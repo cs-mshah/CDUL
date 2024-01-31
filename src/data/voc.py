@@ -123,16 +123,16 @@ class VOCLabelTransform:
         if cache is not None:
             return cache
         tensor_location = self.get_tensor_location(self.global_cache_dir, target)
-        return torch.load(tensor_location, map_location=torch.device('cpu'))
+        return torch.load(tensor_location, map_location=torch.device('cpu')).squeeze()
 
-    def aggregated_label(self, target) -> Tensor:
+    def aggregate_label(self, target) -> Tensor:
         """returns soft aggregation saved vector
         """
         cache = self.pseudo_label(target)
         if cache is not None:
             return cache
         tensor_location = self.get_tensor_location(self.aggregate_cache_dir, target)
-        return torch.load(tensor_location, map_location=torch.device('cpu'))
+        return torch.load(tensor_location, map_location=torch.device('cpu')).squeeze()
     
     def final_label(self, target) -> Tensor:
         """returns initial pseudo label
@@ -140,7 +140,7 @@ class VOCLabelTransform:
         cache = self.pseudo_label(target)
         if cache is not None:
             return cache
-        return 0.5 * (self.global_label(target) + self.aggregated_label(target))
+        return 0.5 * (self.global_label(target) + self.aggregate_label(target))
     
     def pseudo_label(self, target) -> Tensor:
         """returns pseudo label stored during training
