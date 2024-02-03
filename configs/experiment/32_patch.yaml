@@ -13,7 +13,7 @@ defaults:
 # this allows you to overwrite only specified parameters
 
 # task name, determines output directory path (for logs) eg: [clip_cache, train, evaluate]
-task_name: "clip_cache_64_patch"
+task_name: "clip_cache_32_patch"
 
 # config for creating CLIP cache vectors
 clip_cache:
@@ -46,8 +46,9 @@ train:
     lr: 1e-5
   loss:
     _target_: torchmetrics.regression.KLDivergence
+  pseudo_update_frequency: 10 # frequency (in epochs) to update the psuedo labels
   sigma: 1
   enable_checkpointing: false
   resume:
     ckpt_path: null
-  max_epochs: 50
+  max_epochs: 100

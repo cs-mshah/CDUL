@@ -49,9 +49,7 @@ class Trainer:
         # train dataset with targets as (initial pseudo labels ('final', 'global', 'aggregate'), onehot ground truth)
         train_dataset = hydra.utils.instantiate(cfg.data.dataset, transform=train_transform, target_transform=target_transform)
         
-        val_dataset_cfg = copy.deepcopy(cfg.data.val_dataset)
-        
-        val_dataset = hydra.utils.instantiate(val_dataset_cfg, transform=val_transform, target_transform=onehot_transform)
+        val_dataset = hydra.utils.instantiate(cfg.data.val_dataset, transform=val_transform, target_transform=onehot_transform)
         
         self.train_dataloader = DataLoader(train_dataset, 
                                     batch_size=cfg.train.get("batch_size", 8), 
@@ -72,6 +70,7 @@ class Trainer:
         self.val_metric = self.val_metric.to(self.device)
         
         # measure pseudo-label quality over epochs
+        self.pseudo_update_frequency = cfg.train.get("pseudo_update_frequency", 1)
         self.pseudo_metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
         self.pseudo_metric = self.pseudo_metric.to(self.device)
         
@@ -96,7 +95,7 @@ class Trainer:
         self.model.train()
         for (imgs, (filename, pseudo_labels, target_labels)) in tqdm(self.train_dataloader, desc=f"[epoch: {epoch+1}] Training batch"):
             imgs = imgs.to(self.device)
-            pseudo_labels = pseudo_labels.to(self.device)         
+            pseudo_labels = pseudo_labels.to(self.device)
             target_labels = target_labels.to(self.device)
             
             preds = F.softmax(self.model(imgs), dim=-1)
@@ -109,22 +108,24 @@ class Trainer:
             kl_loss.backward()
             self.optimizer.step()
             # TODO: additionally monitor losses: pseudo_gt, pred_gt (not required, already monitoring pseudo mAP)
+            
             # update latent params of psuedo labels (Sec. 3.2 eq. 7)
-            pseudo_labels.requires_grad = True
-            pseudo_labels_loss = self.loss(pseudo_labels, preds)
-            pseudo_labels_grad = torch.autograd.grad(pseudo_labels_loss, pseudo_labels)[0]
-            
-            # set sigma to 1 (not specified in paper)
-            psi_yu = torch.exp(-0.5 * ((pseudo_labels - 0.5) / self.sigma)**2) / (self.sigma * math.sqrt(2 * math.pi))
-            latent_pseudo_labels = torch.log(pseudo_labels / (1 - pseudo_labels)) # sigmoid inverse
-            
-            # eq. 7
-            latent_pseudo_labels -= psi_yu * pseudo_labels_grad 
-            
-            # sigmoid; detach before saving to cache, else dataloader will throw error
-            pseudo_labels = torch.sigmoid(latent_pseudo_labels).clone().detach() 
-            # update the pseudo labels in the dataset
-            self.update_pseudo_labels(filename, pseudo_labels)
+            if (epoch + 1) % self.pseudo_update_frequency == 0:
+                pseudo_labels.requires_grad = True
+                pseudo_labels_loss = self.loss(pseudo_labels, preds)
+                pseudo_labels_grad = torch.autograd.grad(pseudo_labels_loss, pseudo_labels)[0]
+                
+                # set sigma to 1 (not specified in paper)
+                psi_yu = torch.exp(-0.5 * ((pseudo_labels - 0.5) / self.sigma)**2) / (self.sigma * math.sqrt(2 * math.pi))
+                latent_pseudo_labels = torch.log(pseudo_labels / (1 - pseudo_labels)) # sigmoid inverse
+                
+                # eq. 7
+                latent_pseudo_labels -= psi_yu * pseudo_labels_grad
+                
+                # sigmoid; detach before saving to cache, else dataloader will throw error
+                pseudo_labels = torch.sigmoid(latent_pseudo_labels).clone().detach()
+                # update the pseudo labels in the dataset
+                self.update_pseudo_labels(filename, pseudo_labels)
         
         total_loss = self.loss.compute()
         AP_per_class = self.train_metric.compute()
