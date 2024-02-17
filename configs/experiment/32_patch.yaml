@@ -13,7 +13,7 @@ defaults:
 # this allows you to overwrite only specified parameters
 
 # task name, determines output directory path (for logs) eg: [clip_cache, train, evaluate]
-task_name: "clip_cache_32_patch"
+task_name: "32_patch"
 
 # config for creating CLIP cache vectors
 clip_cache:
@@ -33,7 +33,7 @@ evaluate:
 
 train:
   seed: 42
-  target_transform: filename_global_onehot # 'filename_<pseudo label mode>_onehot'
+  target_transform: filename_global_onehot # 'filename_<pseudo label mode: [global, aggregate, final]>_onehot'
   train_transform:
     _target_: src.data.data.ResNet101Transforms
   val_transform:
