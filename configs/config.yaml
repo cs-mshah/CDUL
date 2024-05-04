@@ -22,17 +22,18 @@ task_name: "clip_cache"
 
 # config for creating CLIP cache vectors
 clip_cache:
-  mode: "global" # which cache to generate: [global, aggregate, all]
-  batch_size: 8
-  num_workers: 4
+  mode: "aggregate" # which cache to generate: [global, aggregate, all]
+  batch_size: 16
+  num_workers: 12
   thresh: 0.5
   snippet_size: 3
+  gpus: 6
   global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
   aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
   pseudo_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/pseudo
 
 evaluate: 
-  mode: "global_onehot" # mode of CLIP cache to evaluate
+  mode: "final_onehot" # mode of CLIP cache to evaluate
   batch_size: 8
   num_workers: 4
 
