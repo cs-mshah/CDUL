@@ -41,7 +41,6 @@ def get_indices(cache_dir: str, images_path: List[str], gpus: int = 1, modulo: i
 
 def process_cache(i, cfg, object_categories, temperature, target_transform):
     device = torch.device("cuda", i)
-    temperature = temperature.to(device)
     dataset = hydra.utils.instantiate(
         cfg.data.dataset, target_transform=target_transform
     )
@@ -73,7 +72,7 @@ def process_cache(i, cfg, object_categories, temperature, target_transform):
 
     log.info("Saving soft aggregation similarity vectors...")
     clip_cache.save(mode="aggregate")
-
+    torch.cuda.empty_cache()
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="config.yaml")
 def main(cfg: DictConfig) -> None:
@@ -84,7 +83,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     model, preprocess = clip.load(cfg.model.clip.name)
-    temperature = model.logit_scale.data
+    temperature = float(model.logit_scale.data.item())
 
     if cfg.clip_cache.mode in ["global", "all"]:
         dataset = hydra.utils.instantiate(

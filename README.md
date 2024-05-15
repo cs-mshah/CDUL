@@ -143,4 +143,4 @@ To disable logging using weights and biases, prefix any command with `WANDB_MODE
 ## TODO
 
 - [ ] Run experiments on other datasets.  
-- [ ] Generate a cache for a snippet size of 3 x 3.  
+- [x] Generate a cache for a snippet size of 3 x 3.  

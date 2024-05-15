@@ -27,7 +27,7 @@ clip_cache:
   num_workers: 12
   thresh: 0.5
   snippet_size: 3
-  gpus: 6
+  gpus: 8
   global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
   aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
   pseudo_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/pseudo
