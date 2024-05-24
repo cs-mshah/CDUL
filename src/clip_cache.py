@@ -20,12 +20,14 @@ from src.utils.rich_utils import print_config_tree
 
 def get_indices(cache_dir: str, images_path: List[str], gpus: int = 1, modulo: int = 0):
     """returns indices of images_path which are not present in the cache_dir"""
+    cache_files = []
     if not os.path.exists(cache_dir):
-        indices = list(range(len(images_path)))
-        return indices
-    log.info("Continuing from existing generated cache...")
-    cache_files = os.listdir(cache_dir)
-    cache_files = [os.path.basename(f).split(".")[0] for f in cache_files]
+        log.info("Generating aggregate cache with multiprocessing...")
+    else:
+        log.info("Continuing from existing generated cache...")
+        cache_files = os.listdir(cache_dir)
+        cache_files = [os.path.basename(f).split(".")[0] for f in cache_files]
+
     base_img = lambda img: os.path.basename(img).split(".")[0]
     indice_modulo = (
         lambda img: int(os.path.basename(img).split(".")[0].split("_")[1]) % gpus
@@ -52,8 +54,11 @@ def process_cache(i, cfg, object_categories, temperature, target_transform):
     )
     subset_dataset = torch.utils.data.Subset(dataset, indices)
     # create a new dataset with tile crops
-    sz = (cfg.clip_cache.snippet_size, cfg.clip_cache.snippet_size)
-    tile_crop_dataset = TileCropDataset(subset_dataset, tile_size=sz)
+    sz = (cfg.clip_cache.get("snippet_size", None), cfg.clip_cache.get("snippet_size", None))
+    num_tiles = (cfg.clip_cache.get("num_patches", None), cfg.clip_cache.get("num_patches", None))
+    tile_crop_dataset = TileCropDataset(
+        subset_dataset, tile_size=sz, num_tiles=num_tiles
+    )
     log.info(f"Processing cache of size {len(tile_crop_dataset)} on GPU {i}")
 
     # Section 3.1.2, 3.1.3: save soft aggregation similarity vectors
@@ -61,10 +66,10 @@ def process_cache(i, cfg, object_categories, temperature, target_transform):
         tile_crop_dataset,
         object_categories,
         cfg.clip_cache.global_cache_dir,
+        cfg.clip_cache.alpha_beta_dir,
         cfg.clip_cache.aggregate_cache_dir,
         thresh=cfg.clip_cache.thresh,
         temperature=temperature,
-        snippet_size=cfg.clip_cache.snippet_size,
         batch_size=cfg.clip_cache.batch_size,
         num_workers=cfg.clip_cache.num_workers,
         device=device,
@@ -94,10 +99,10 @@ def main(cfg: DictConfig) -> None:
             dataset,
             object_categories,
             cfg.clip_cache.global_cache_dir,
+            cfg.clip_cache.alpha_beta_dir,
             cfg.clip_cache.aggregate_cache_dir,
             thresh=cfg.clip_cache.thresh,
             temperature=temperature,
-            snippet_size=cfg.clip_cache.snippet_size,
             batch_size=cfg.clip_cache.batch_size,
             num_workers=cfg.clip_cache.num_workers,
         )
@@ -109,9 +114,14 @@ def main(cfg: DictConfig) -> None:
         del model, preprocess
         torch.cuda.empty_cache()
 
-        set_start_method("spawn")
+        try:
+            set_start_method("spawn") # required by pytorch
+        except RuntimeError as e:
+            log.warning(f"{str(e)}")
+            if 'context has already been set' not in str(e):
+                raise e
 
-        num_gpus = cfg.clip_cache.get("gpus", 1)
+        num_gpus = min(cfg.clip_cache.get("gpus", 1), torch.cuda.device_count())
         with Pool(num_gpus) as p:
             partial_process_cache = partial(
                 process_cache,

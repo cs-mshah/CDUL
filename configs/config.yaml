@@ -18,28 +18,33 @@ defaults:
   # - hparams_search: null
 
 # task name, determines output directory path (for logs) eg: [clip_cache, train, evaluate]
-task_name: "clip_cache"
+task_name: "voc2012"
 
 # config for creating CLIP cache vectors
 clip_cache:
   mode: "aggregate" # which cache to generate: [global, aggregate, all]
   batch_size: 16
   num_workers: 12
-  thresh: 0.5
-  snippet_size: 3
+  thresh: 0 # supplementary (of original paper) range: [0, 0.4]
+  # snippet_size: 3 # size of crops in pixels
+  num_patches: 3 # snippet size (number of crops along a dimension of original image)
   gpus: 8
   global_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/global
-  aggregate_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/thresh_${clip_cache.thresh}/snippet_size_${clip_cache.snippet_size}/aggregate
+  # alpha_beta_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/snippet_size_${clip_cache.snippet_size}
+  alpha_beta_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/num_patches_${clip_cache.num_patches}
+  aggregate_cache_dir: ${clip_cache.alpha_beta_dir}/thresh_${clip_cache.thresh}/aggregate
   pseudo_cache_dir: ${paths.cache_save_root}/clip_cache/model_${model.clip.name}/pseudo
+  # lamda for computing final pseudo label. (see supplementary of original paper)
+  final_lambda: 0
 
-evaluate: 
+evaluate:
   mode: "final_onehot" # mode of CLIP cache to evaluate
   batch_size: 8
   num_workers: 4
 
 train:
   seed: 42
-  target_transform: filename_global_onehot # 'filename_<pseudo label mode: [global, aggregate, final]>_onehot'
+  target_transform: filename_final_onehot # 'filename_<pseudo label mode: [global, aggregate, final]>_onehot'
   train_transform:
     _target_: src.data.data.ResNet101Transforms
   val_transform:
@@ -52,9 +57,12 @@ train:
     lr: 1e-5
   loss:
     _target_: torchmetrics.regression.KLDivergence
-  pseudo_update_frequency: 10 # frequency (in epochs) to update the psuedo labels
+  # warmup epochs before alternate updates
+  warmup: 3
+  # frequency (in epochs) while alternating updates of psuedo labels
+  pseudo_update_frequency: 1
   sigma: 1
   enable_checkpointing: false
   resume:
     ckpt_path: null
-  max_epochs: 100
+  max_epochs: 20

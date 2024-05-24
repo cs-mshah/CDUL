@@ -28,7 +28,8 @@ def main(cfg: DictConfig):
                                                 object_categories=object_categories,
                                                 transform_type=cfg.evaluate.mode, 
                                                 global_cache_dir=cfg.clip_cache.global_cache_dir,
-                                                aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir)
+                                                aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir,
+                                                final_lambda=cfg.clip_cache.final_lambda)
     
     predicted_dataset = hydra.utils.instantiate(cfg.data.dataset, transform=preprocess, target_transform=predict_transform)
     

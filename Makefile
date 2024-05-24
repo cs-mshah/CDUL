@@ -17,32 +17,26 @@ sync: ## Merge changes from main branch to your current branch
 	git pull
 	git pull origin main
 
+voc2012: ## download the pascal voc 2012 dataset
+	python src/data/voc.py
+
 train: ## Train the model
 	python src/train.py
 
 evaluate: ## evaluate global similarity vectors
-	python src/evaluate.py
+	python src/evaluate.py evaluate.mode=global_onehot
 
-evaluate16: ## evaluate final cache for snippet size 16 x 16
-	python src/evaluate.py experiment=16_patch
+evaluate0: ## evaluate final cache for num_patches 3 x 3 and threshold 0
+	python src/evaluate.py evaluate.mode=final_onehot clip_cache.num_patches=3 clip_cache.thresh=0
 
-evaluate32: ## evaluate final cache for snippet size 32 x 32
-	python src/evaluate.py experiment=32_patch
-
-evaluate64: ## evaluate final cache for snippet size 64 x 64
-	python src/evaluate.py experiment=64_patch
+evaluate1: ## evaluate final cache for num_patches 3 x 3 and threshold 0.1
+	python src/evaluate.py evaluate.mode=final_onehot clip_cache.num_patches=3 clip_cache.thresh=0.1
 
 clip_cache: ## create clip cache for global similarity vectors
-	python src/clip_cache.py
+	python src/clip_cache.py clip_cache.mode=global
 
-voc2012: ## download the pascal voc 2012 dataset
-	python src/data/voc.py
+clip_cache0: ## create clip cache for num_patches 3 x 3 and threshold 0
+	python src/clip_cache.py clip_cache.mode=aggregate clip_cache.num_patches=3 clip_cache.thresh=0
 
-clip_cache16: ## create clip cache for snippet size = 16 x 16
-	python src/clip_cache.py experiment=16_patch
-
-clip_cache32: ## create clip cache for snippet size = 32 x 32
-	python src/clip_cache.py experiment=32_patch
-
-clip_cache64: ## create clip cache for snippet size = 64 x 64
-	python src/clip_cache.py experiment=64_patch
+clip_cache1: ## create clip cache for num_patches 3 x 3 and threshold 0.1
+	python src/clip_cache.py clip_cache.mode=aggregate clip_cache.num_patches=3 clip_cache.thresh=0.1

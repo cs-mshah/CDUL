@@ -2,6 +2,7 @@ import math
 import hydra
 import copy
 import os
+from datetime import datetime
 import shutil
 from tqdm import tqdm
 from typing import Tuple
@@ -34,12 +35,15 @@ class Trainer:
         val_transform = hydra.utils.instantiate(cfg.train.val_transform)
         
         # for defining the initial pseudo labels
-        target_transform = hydra.utils.instantiate(cfg.data.target_transform, 
-                                                object_categories=object_categories,
-                                                transform_type=cfg.train.target_transform, 
-                                                global_cache_dir=cfg.clip_cache.global_cache_dir,
-                                                aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir,
-                                                pseudo_cache_dir=cfg.clip_cache.pseudo_cache_dir)
+        target_transform = hydra.utils.instantiate(
+            cfg.data.target_transform,
+            object_categories=object_categories,
+            transform_type=cfg.train.target_transform,
+            global_cache_dir=cfg.clip_cache.global_cache_dir,
+            aggregate_cache_dir=cfg.clip_cache.aggregate_cache_dir,
+            pseudo_cache_dir=cfg.clip_cache.pseudo_cache_dir,
+            final_lambda=cfg.clip_cache.final_lambda,
+        )
         
         # used in the val dataset
         onehot_transform = hydra.utils.instantiate(cfg.data.target_transform, 
@@ -70,6 +74,7 @@ class Trainer:
         self.val_metric = self.val_metric.to(self.device)
         
         # measure pseudo-label quality over epochs
+        self.warmup = cfg.train.get("warmup", 0)
         self.pseudo_update_frequency = cfg.train.get("pseudo_update_frequency", 1)
         self.pseudo_metric = ClasswiseWrapper(MultilabelAveragePrecision(num_labels=len(object_categories), average=None), labels=object_categories)
         self.pseudo_metric = self.pseudo_metric.to(self.device)
@@ -110,12 +115,11 @@ class Trainer:
             # TODO: additionally monitor losses: pseudo_gt, pred_gt (not required, already monitoring pseudo mAP)
             
             # update latent params of psuedo labels (Sec. 3.2 eq. 7)
-            if (epoch + 1) % self.pseudo_update_frequency == 0:
+            if (epoch + 1) > self.warmup and (epoch + 1) % self.pseudo_update_frequency == 0:
                 pseudo_labels.requires_grad = True
                 pseudo_labels_loss = self.loss(pseudo_labels, preds)
                 pseudo_labels_grad = torch.autograd.grad(pseudo_labels_loss, pseudo_labels)[0]
                 
-                # set sigma to 1 (not specified in paper)
                 psi_yu = torch.exp(-0.5 * ((pseudo_labels - 0.5) / self.sigma)**2) / (self.sigma * math.sqrt(2 * math.pi))
                 latent_pseudo_labels = torch.log(pseudo_labels / (1 - pseudo_labels)) # sigmoid inverse
                 
@@ -214,16 +218,17 @@ def main(cfg: DictConfig) -> None:
     wandb_config = OmegaConf.to_container(
         cfg, resolve=True, throw_on_missing=True
     )
-    # TODO: fetch from cfg.logger
-    wandb.init(entity=os.environ['WANDB_ENTITY'],
-               project='CDUL',
-               name=f'{cfg.task_name}',
-               config=wandb_config,
-               id=None, # replace with run id when resuming a run
-               resume='allow',
-               tags=None,
-               allow_val_change=True,
-               settings=wandb.Settings(start_method="fork"))
+
+    wandb.init(
+        entity=cfg.logger.entity,
+        project=cfg.logger.project,
+        name=f"{cfg.task_name}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}",
+        config=wandb_config,
+        id=cfg.logger.id,  # replace with run id when resuming a run
+        resume=cfg.logger.resume,
+        tags=cfg.logger.tags,
+        allow_val_change=cfg.logger.allow_val_change
+    )
     
     trainer = Trainer(cfg)
     trainer.fit()

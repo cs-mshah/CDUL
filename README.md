@@ -1,4 +1,8 @@
 # CDUL
+
+[![arXiv](http://img.shields.io/badge/paper-arxiv.2405.11574-B31B1B.svg)](https://arxiv.org/abs/2405.11574) 
+[![arXiv](http://img.shields.io/badge/paper-arxiv.2307.16634-B31B1B.svg)](https://arxiv.org/abs/2307.16634) 
+
 Implementation to CDUL: CLIP-Driven Unsupervised Learning for Multi-Label Image Classification
 
 ## Setup
@@ -84,19 +88,20 @@ For downloading the PASCAL VOC dataset to the `DATASETS_ROOT` folder run `make v
 
 ### Claim 1
 
-To generate pseudo label vector caches for the global and aggregate alignment vectors using various snippet sizes run the following commands:
-```
+To generate pseudo label vector caches for the global and aggregate alignment vectors using various snippet sizes (num_patches) and thresholds run the following commands:
+
+> [!NOTE] 
+> There was an initial confusion regarding the meaning of snippet size being 3 x 3. Early results by using 3 x 3 pixels as snippets with a large threshold of 0.5 did not seem to improve over the mAP of global similarity vectors. But considering the meaning of snippets as 3 x 3 = 9 crops of the image and using a threshold of 0 does improve the result over global.
+
+```shell
 # cache global similarity vectors
 make clip_cache
 
-# cache aggregate vectors with snippet size 16 x 16
-make clip_cache16
+# cache aggregate vectors with num_patches 3 x 3 and threshold 0
+make clip_cache0
 
-# cache aggregate vectors with snippet size 32 x 32
-make clip_cache32
-
-# cache aggregate vectors with snippet size 64 x 64
-make clip_cache64
+# cache aggregate vectors with num_patches 3 x 3 and threshold 0.1
+make clip_cache1
 ```
 
 A `clip_cache` folder will get created under the dataset folder. For the PASCAL VOC 2012 dataset, the filetree looks like:
@@ -115,32 +120,51 @@ For evaluating the `clip_cache` provided in this repository, copy the `clip_cach
 
 For evaluating the quality (**mAP**) of the initial pseudo labels run:
 
-```
+```shell
 # Note: for evaluating, you must have the clip_cache created using either the above commands or the provided cache.
 
 # to evaluate the pseudo labels initialzed only using the global similarity vectors
 make evaluate
 
-# evaluate final pseudo labels (average of global and aggregate) using snippet size 16 x 16
-make evaluate16
+# evaluate final pseudo labels (average of global and aggregate) using num_patches 3 x 3 and threshold 0
+make evaluate0
 
-# evaluate final pseudo labels using snippet size 32 x 32
-make evaluate32
-
-# evaluate final pseudo labels using snippet size 64 x 64
-make evaluate64
+# evaluate final pseudo labels using num_patches 3 x 3 and threshold 0.1
+make evaluate1
 ```
 
 ### Claim 2
 
-For training the classifier network on the global similarity vectors as the initial pseudo labels, run:
+For training the classifier network on the final similarity vectors as the initial pseudo labels, run:
 `make train`.  
-To train using final pseudo label vectors, change the `target_transform` field in the appropriate yaml config file under `configs/experiment` of an experiment and then run `python src/train.py experiment=<snippet_size>_patch`. More details can be seen in the comments of various config files.  
-The pseudo label update frequency has been set to 10. Change this in the config files accordingly.
+More details can be seen in the comments of various config files.  
+The pseudo label update frequency and warmput can be varied accordingly.
 
 To disable logging using weights and biases, prefix any command with `WANDB_MODE=disabled`.
 
 ## TODO
 
-- [ ] Run experiments on other datasets.  
-- [x] Generate a cache for a snippet size of 3 x 3.  
+- [x] Generate a cache for num_patches 3 x 3 for different thresholds.
+- [x] Use multiprocessing for cache generation on multiple GPUs.
+- [ ] Experiment with optimization hyper-parameters to get better mAP on val set.
+- [ ] Run experiments on other datasets - MS-COCO.  
+
+## Citations
+
+```shell
+@article{shah2024reproducibility,
+  title   = {Reproducibility Study of CDUL: CLIP-Driven Unsupervised Learning for Multi-Label Image Classification},
+  author  = {Manan Shah and Yash Bhalgat},
+  year    = {2024},
+  journal = {arXiv preprint arXiv: 2405.11574}
+}
+```
+
+```
+@article{abdelfattah2023cdul,
+  title   = {CDUL: CLIP-Driven Unsupervised Learning for Multi-Label Image Classification},
+  author  = {Rabab Abdelfattah and Qing Guo and Xiaoguang Li and Xiaofeng Wang and Song Wang},
+  year    = {2023},
+  journal = {arXiv preprint arXiv: 2307.16634}
+}
+```

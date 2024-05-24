@@ -4,6 +4,7 @@ from tqdm import tqdm
 from torch import Tensor
 import torch
 import torch.nn.functional as F
+from loguru import logger as log
 import clip
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import ToTensor, InterpolationMode, Normalize, Compose, CenterCrop, Resize
@@ -25,9 +26,11 @@ class ResNet101Transforms:
 
 
 class TileCropDataset(Dataset):
-    def __init__(self, dataset: Dataset, tile_size:tuple = (3, 3)):
+    def __init__(self, dataset: Dataset, tile_size=(None, None), num_tiles=(None, None)):
+        assert tile_size != (None, None) or num_tiles != (None, None), "Either tile_size or num_tiles must be provided"
         self.dataset = dataset
         self.tile_size = tile_size
+        self.num_tiles = num_tiles
 
     def __len__(self):
         return len(self.dataset)
@@ -36,9 +39,18 @@ class TileCropDataset(Dataset):
         # Get image dimensions
         img_height, img_width = img.shape[1:]
 
-        # Calculate number of tiles along each dimension
-        num_tiles_height = img_height // self.tile_size[0]
-        num_tiles_width = img_width // self.tile_size[1]
+        if self.tile_size == (None, None):
+            # when num_tiles(total tiles of image) is provided
+            num_tiles_height, num_tiles_width = self.num_tiles
+            tile_size_x, tile_size_y = img_height // num_tiles_height, img_width // num_tiles_width
+            tile_size = (tile_size_x, tile_size_y)
+        else:
+            # when snippet(tile) size in pixels is provided
+            tile_size = self.tile_size
+            num_tiles_height, num_tiles_width = (
+                img_height // tile_size[0],
+                img_width // tile_size[1],
+            )
 
         # Initialize list to store tiles
         tiles = []
@@ -47,17 +59,16 @@ class TileCropDataset(Dataset):
         for i in range(num_tiles_height):
             for j in range(num_tiles_width):
                 # Calculate tile coordinates
-                start_h = i * self.tile_size[0]
-                end_h = start_h + self.tile_size[0]
-                start_w = j * self.tile_size[1]
-                end_w = start_w + self.tile_size[1]
+                start_h = i * tile_size[0]
+                end_h = start_h + tile_size[0]
+                start_w = j * tile_size[1]
+                end_w = start_w + tile_size[1]
 
                 # Crop the tile
                 tile = img[:, start_h:end_h, start_w:end_w]
 
                 # Append the tile to the list
                 tiles.append(tile)
-
         return torch.stack(tiles)
     
     def __getitem__(self, idx):
@@ -68,7 +79,20 @@ class TileCropDataset(Dataset):
 
 
 class CLIPCache:
-    def __init__(self, dataset: Dataset, object_categories: List[str], global_cache_dir: str, aggregate_cache_dir: str, thresh: float = 0.5, temperature:float = 1, snippet_size: int = 3, clip_model: str = 'RN50x64', batch_size:int = 16, num_workers:int = 16, device: str = 'cuda'):
+    def __init__(
+        self,
+        dataset: Dataset,
+        object_categories: List[str],
+        global_cache_dir: str,
+        alpha_beta_dir: str,
+        aggregate_cache_dir: str,
+        thresh: float = 0.5,
+        temperature: float = 1,
+        clip_model: str = "RN50x64",
+        batch_size: int = 16,
+        num_workers: int = 16,
+        device: str = "cuda",
+    ):
         """CLIPCache: Cache vectors after passing images through CLIP
         Args:
             dataset (Dataset): dataset object
@@ -76,7 +100,6 @@ class CLIPCache:
             global_cache_dir (str): directory to save global CLIP cached vectors
             aggregate_cache_dir (str): directory to save aggregate CLIP cached vectors
             thresh (float): threshold parameter (sec. 3.1.3)
-            snippet_size (int): size of snippet image
             clip_model (str): CLIP vision encoder model used
             batch_size (int): batch size for processing through CLIP
             num_workers (int): workers for the dataloader
@@ -88,7 +111,6 @@ class CLIPCache:
         self.aggregate_cache_dir = aggregate_cache_dir
         self.thresh = thresh
         self.temperature = temperature
-        self.snippet_size = snippet_size
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.device = device
@@ -103,7 +125,13 @@ class CLIPCache:
         self.text_features = self._text_encode()
         os.makedirs(global_cache_dir, exist_ok=True)
         os.makedirs(aggregate_cache_dir, exist_ok=True)
-        
+
+        # caching alpha and beta for faster computation of aggregate for any threshold
+        self.alpha_dir = os.path.join(alpha_beta_dir, 'alpha')
+        self.beta_dir = os.path.join(alpha_beta_dir, "beta")
+        os.makedirs(self.alpha_dir, exist_ok=True)
+        os.makedirs(self.beta_dir, exist_ok=True)
+
     @torch.no_grad()
     def _text_encode(self) -> Tensor:
         """clip encode categories text
@@ -148,33 +176,50 @@ class CLIPCache:
         self.preprocess.transforms.pop(2)
         for i in tqdm(range(len(self.dataset)), desc="Processing dataset"):
             tiles, filename = self.dataset[i]
-            similarity = self._compute_in_batches(tiles)
             file_save = os.path.basename(filename).split('.')[0] + '.pt'
+            similarity = self._compute_in_batches(tiles, file_save)
             save_tensor = similarity.squeeze()
             torch.save(save_tensor, os.path.join(self.aggregate_cache_dir, file_save))
+
+            if not self._is_alpha_beta_cached(file_save):
+                torch.save(self.alpha, os.path.join(self.alpha_dir, file_save))
+                torch.save(self.beta, os.path.join(self.beta_dir, file_save))
     
-    def _compute_in_batches(self, images: Tensor) -> Tensor:
+    def _compute_in_batches(self, images: Tensor, file: str) -> Tensor:
         """compute similarity vectors for tiles of an image (*, C, snippet_size, snippet_size)
         """
-        # reset alpha and beta for each image
-        self._reset_alpha_beta()
+        if self._is_alpha_beta_cached(file):
+            self.alpha = torch.load(
+                os.path.join(self.alpha_dir, file), map_location=self.device
+            )
+            self.beta = torch.load(
+                os.path.join(self.beta_dir, file), map_location=self.device
+            )
+        else:
+            # reset alpha and beta for each image
+            self._reset_alpha_beta()
 
-        for start_idx in tqdm(range(0, images.shape[0], self.batch_size), desc="Processing dataset tiles"):
-            end_idx = start_idx + self.batch_size
-            
-            # pass tiles in batch_size through clip image encoder
-            batch_tiles = self.preprocess(images[start_idx:end_idx])
-            batch_tiles = batch_tiles.to(self.device)
-            tiles_similarity = self._image_encode(batch_tiles)
-            self.alpha = torch.max(self.alpha, tiles_similarity.max(dim=0, keepdim=True).values)
-            self.beta = torch.min(self.beta, tiles_similarity.min(dim=0, keepdim=True).values)
-        
+            for start_idx in tqdm(range(0, images.shape[0], self.batch_size), desc="Processing dataset tiles"):
+                end_idx = start_idx + self.batch_size
+                
+                # pass tiles in batch_size through clip image encoder
+                batch_tiles = self.preprocess(images[start_idx:end_idx])
+                batch_tiles = batch_tiles.to(self.device)
+                tiles_similarity = self._image_encode(batch_tiles)
+                self.alpha = torch.max(self.alpha, tiles_similarity.max(dim=0, keepdim=True).values)
+                self.beta = torch.min(self.beta, tiles_similarity.min(dim=0, keepdim=True).values)
+
         # Sec 3.1.3 Eq. (5)
         gamma = (self.alpha >= self.thresh).float()
         
         # Sec 3.1.3 Eq. (6)
         return self.alpha * gamma + self.beta * (1 - gamma)
     
+    def _is_alpha_beta_cached(self, file: str) -> bool:
+        """check if alpha and beta are cached
+        """
+        return os.path.exists(os.path.join(self.alpha_dir, file)) and os.path.exists(os.path.join(self.beta_dir, file))
+
     def _reset_alpha_beta(self):
         """reset alpha and beta
         """

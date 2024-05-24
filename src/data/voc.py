@@ -1,4 +1,5 @@
 import os
+import math
 from typing import Dict, List
 from torch import Tensor
 import torch
@@ -39,7 +40,8 @@ class VOCLabelTransform:
     def __init__(self, object_categories: List | None = None, exclude_difficult: bool = False, transform_type: str = 'onehot', 
                  global_cache_dir: str = None, 
                  aggregate_cache_dir: str = None,
-                 pseudo_cache_dir: str = None):
+                 pseudo_cache_dir: str = None,
+                 final_lambda=0.0):
         """VOC Label Transform
         Args:
             object_categories (list): List of object categories.
@@ -48,6 +50,7 @@ class VOCLabelTransform:
             global_cache_dir (str): Directory to fetch the global cached tensors.
             aggregate_cache_dir (str): Directory to fetch the aggregate cached tensors.
             pseudo_cache_dir (str): Directory to fetch the pseudo label vectors during training. Set to None for all other cases.
+            final_lambda (float): Weight for the final pseudo label (see supplementary).
         """
         self.object_categories = object_categories
         self.exclude_difficult = exclude_difficult
@@ -55,6 +58,7 @@ class VOCLabelTransform:
         self.global_cache_dir = global_cache_dir
         self.aggregate_cache_dir = aggregate_cache_dir
         self.pseudo_cache_dir = pseudo_cache_dir
+        self.final_lambda = final_lambda
 
     def __call__(self, target: Dict):
         """
@@ -86,16 +90,16 @@ class VOCLabelTransform:
         ls = target['annotation']['object']
 
         j = []
-        if type(ls) == dict:
+        if isinstance(ls, dict):
             if int(ls['difficult']) == 0:
                 j.append(self.object_categories.index(ls['name']))
-            elif int(ls['difficult']) == 1 and self.exclude_difficult == False:
+            elif int(ls['difficult']) == 1 and not self.exclude_difficult:
                 j.append(self.object_categories.index(ls['name']))
-        elif type(ls) == list:
+        elif isinstance(ls, list):
             for i in range(len(ls)):
                 if int(ls[i]['difficult']) == 0:
                     j.append(self.object_categories.index(ls[i]['name']))
-                elif int(ls[i]['difficult']) == 1 and self.exclude_difficult == False:
+                elif int(ls[i]['difficult']) == 1 and not self.exclude_difficult:
                     j.append(self.object_categories.index(ls[i]['name']))
         else:
             raise TypeError
@@ -140,7 +144,9 @@ class VOCLabelTransform:
         cache = self.pseudo_label(target)
         if cache is not None:
             return cache
-        return 0.5 * (self.global_label(target) + self.aggregate_label(target))
+        glob = self.global_label(target)
+        agg = self.aggregate_label(target)
+        return 0.5 * (glob + agg + self.final_lambda * torch.abs(glob - agg))
     
     def pseudo_label(self, target) -> Tensor:
         """returns pseudo label stored during training

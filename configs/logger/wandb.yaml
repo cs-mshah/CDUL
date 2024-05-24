@@ -1,0 +1,6 @@
+entity: ${oc.env:WANDB_ENTITY}
+project: ${oc.env:WANDB_PROJECT}
+id: null # change to run id if resuming
+resume: allow
+tags: null
+allow_val_change: true
