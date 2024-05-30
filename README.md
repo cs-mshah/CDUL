@@ -140,13 +140,18 @@ For training the classifier network on the final similarity vectors as the initi
 More details can be seen in the comments of various config files.  
 The pseudo label update frequency and warmput can be varied accordingly.
 
-To disable logging using weights and biases, prefix any command with `WANDB_MODE=disabled`.
+To disable logging using weights and biases, prefix any command with `WANDB_MODE=disabled`. Logs for the experiments can be found at: [https://wandb.ai/manan-shah/CDUL](https://wandb.ai/manan-shah/CDUL).  
+
+To run an extensive hyperparameter search run:  
+```shell
+python src/train.py -m hparams_search=voc2012_optuna
+```
 
 ## TODO
 
 - [x] Generate a cache for num_patches 3 x 3 for different thresholds.
 - [x] Use multiprocessing for cache generation on multiple GPUs.
-- [ ] Experiment with optimization hyper-parameters to get better mAP on val set.
+- [x] Experiment with optimization hyper-parameters to get better mAP on val set.
 - [ ] Run experiments on other datasets - MS-COCO.  
 
 ## Citations

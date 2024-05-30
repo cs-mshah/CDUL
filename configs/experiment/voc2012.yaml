@@ -20,9 +20,6 @@ defaults:
 # task name, determines output directory path (for logs) eg: [clip_cache, train, evaluate]
 task_name: "voc2012_train"
 
-# print verbose config
-config_tree: true
-
 # config for creating CLIP cache vectors
 clip_cache:
   mode: "aggregate" # which cache to generate: [global, aggregate, all]

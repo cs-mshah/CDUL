@@ -1,6 +1,5 @@
 import math
 import hydra
-import copy
 import os
 from datetime import datetime
 import shutil
@@ -84,7 +83,7 @@ class Trainer:
         self.loss: KLDivergence = hydra.utils.instantiate(cfg.train.loss)
         self.loss = self.loss.to(self.device)
         
-    def fit(self):
+    def fit(self) -> float:
         start_epoch = self.resume_checkpoint()
         for epoch in range(start_epoch, self.cfg.train.max_epochs):
             total_loss, train_mAP, pseuso_mAP = self.train(epoch)
@@ -95,6 +94,7 @@ class Trainer:
             self.train_metric.reset()
             self.pseudo_metric.reset()
             self.val_metric.reset()
+        return self.best_val_mAP
             
     def train(self, epoch: int) -> float:
         self.model.train()
@@ -168,7 +168,7 @@ class Trainer:
                 self.cfg.train.resume.ckpt_path), "Error: no checkpoint found!"
             assert len(os.listdir(
                 self.cfg.clip_cache.pseudo_cache_dir)), "Cache directory is empty!"
-            log.info(f'resuming from checkpoint')
+            log.info('resuming from checkpoint')
             self.cfg.paths.log_dir = os.path.dirname(self.cfg.train.resume.ckpt_path) # set output directory same as resume directory
             checkpoint = torch.load(self.cfg.train.resume.ckpt_path)
             model_state_dict = checkpoint['model_state_dict']
@@ -181,16 +181,17 @@ class Trainer:
             # clear old cache if any and create new cache directory
             try:
                 shutil.rmtree(self.cfg.clip_cache.pseudo_cache_dir)
-                log.warning(f'cleared old cache')
+                log.warning('cleared old cache')
             except Exception as e:
-                log.info(f'no old pseudo label cache found')
+                log.info('no old pseudo label cache found')
             log.info(f"Creating pseudo label cache dir: {self.cfg.clip_cache.pseudo_cache_dir}")
             os.makedirs(self.cfg.clip_cache.pseudo_cache_dir, exist_ok=True)
         return start_epoch
     
     def save_checkpoint(self, epoch: int, val_mAP: float):
         """training checkpointing"""
-        if not self.cfg.train.enable_checkpointing:
+        if not self.cfg.train.get("enable_checkpointing", False):
+            self.best_val_mAP = max(self.best_val_mAP, val_mAP)
             return
         save_dict = {
             'epoch': epoch + 1,
@@ -218,20 +219,25 @@ def main(cfg: DictConfig) -> None:
     wandb_config = OmegaConf.to_container(
         cfg, resolve=True, throw_on_missing=True
     )
-
+    group = None
+    if cfg.logger.get("group", None):
+        group = cfg.logger.group + "_" + cfg.task_name
     wandb.init(
         entity=cfg.logger.entity,
+        group=group,
         project=cfg.logger.project,
         name=f"{cfg.task_name}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}",
         config=wandb_config,
         id=cfg.logger.id,  # replace with run id when resuming a run
         resume=cfg.logger.resume,
         tags=cfg.logger.tags,
-        allow_val_change=cfg.logger.allow_val_change
+        allow_val_change=cfg.logger.allow_val_change,
     )
     
     trainer = Trainer(cfg)
-    trainer.fit()
+    best_val_mAP = trainer.fit()
+    log.info(f'best_val_mAP: {best_val_mAP}')
+    return best_val_mAP
 
 
 if __name__=='__main__':

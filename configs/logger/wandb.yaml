@@ -1,4 +1,5 @@
 entity: ${oc.env:WANDB_ENTITY}
+group: null
 project: ${oc.env:WANDB_PROJECT}
 id: null # change to run id if resuming
 resume: allow

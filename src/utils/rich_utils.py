@@ -27,6 +27,8 @@ def print_config_tree(
     :param resolve: Whether to resolve reference fields of DictConfig. Default is ``False``.
     :param save_to_file: Whether to export config to the hydra output folder. Default is ``False``.
     """
+    if not cfg.get("config_tree", True):
+        return
     style = "dim"
     tree = rich.tree.Tree("CONFIG", style=style, guide_style=style)
 
@@ -58,7 +60,7 @@ def print_config_tree(
     # print config tree
     rich.print(tree)
 
-    # save config tree to file
+    # save config travailable_gpuee to file
     if save_to_file:
         with open(Path(cfg.paths.output_dir, "config_tree.log"), "w") as file:
             rich.print(tree, file=file)
