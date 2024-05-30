@@ -103,7 +103,7 @@ class Trainer:
     def early_stopping(self, pseuso_mAP: float, epoch: int) -> bool:
         if not self.cfg.train.get("early_stopping", False):
             return False
-        epochs_wait = self.cfg.train.early_stopping.epochs
+        epochs_wait = self.cfg.train.early_stopping * self.pseudo_update_frequency
         if epoch == 0:
             self.pseudo_mAP_start = pseuso_mAP
             return False

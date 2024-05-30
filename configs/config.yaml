@@ -70,5 +70,4 @@ train:
     ckpt_path: null
   max_epochs: 100
   # stop the run if mAP of pseudo labels is less than initial. Use this for finding hparams
-  early_stopping:
-    epochs: 10
+  early_stopping: 3 # check from initial update
