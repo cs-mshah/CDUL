@@ -82,11 +82,15 @@ class Trainer:
         
         self.loss: KLDivergence = hydra.utils.instantiate(cfg.train.loss)
         self.loss = self.loss.to(self.device)
-        
+    
     def fit(self) -> float:
         start_epoch = self.resume_checkpoint()
         for epoch in range(start_epoch, self.cfg.train.max_epochs):
             total_loss, train_mAP, pseuso_mAP = self.train(epoch)
+            stop = self.early_stopping(pseuso_mAP, epoch)
+            if stop:
+                log.warning(f'early stopping at epoch: {epoch+1} since pseudo mAP is decreasing. Initial: {self.pseudo_mAP_start}, Current: {pseuso_mAP}')
+                break
             val_mAP = self.validation(epoch)
             wandb.log({'train/pred_pseudo_kl': total_loss, 'train/mAP': train_mAP, 'train/pseudo_mAP': pseuso_mAP, 'val/mAP': val_mAP})
             log.info(f'[epoch: {epoch+1}] train_loss KL(pred,pseudo): {total_loss}, train_mAP: {train_mAP}, pseudo_mAP: {pseuso_mAP}, val_mAP: {val_mAP}')
@@ -95,7 +99,18 @@ class Trainer:
             self.pseudo_metric.reset()
             self.val_metric.reset()
         return self.best_val_mAP
-            
+
+    def early_stopping(self, pseuso_mAP: float, epoch: int) -> bool:
+        if not self.cfg.train.get("early_stopping", False):
+            return False
+        epochs_wait = self.cfg.train.early_stopping.epochs
+        if epoch == 0:
+            self.pseudo_mAP_start = pseuso_mAP
+            return False
+        elif epoch > epochs_wait and pseuso_mAP < self.pseudo_mAP_start:
+            return True
+        return False
+
     def train(self, epoch: int) -> float:
         self.model.train()
         for (imgs, (filename, pseudo_labels, target_labels)) in tqdm(self.train_dataloader, desc=f"[epoch: {epoch+1}] Training batch"):
@@ -112,7 +127,6 @@ class Trainer:
             self.optimizer.zero_grad()
             kl_loss.backward()
             self.optimizer.step()
-            # TODO: additionally monitor losses: pseudo_gt, pred_gt (not required, already monitoring pseudo mAP)
             
             # update latent params of psuedo labels (Sec. 3.2 eq. 7)
             if (epoch + 1) > self.warmup and (epoch + 1) % self.pseudo_update_frequency == 0:
@@ -232,6 +246,8 @@ def main(cfg: DictConfig) -> None:
         resume=cfg.logger.resume,
         tags=cfg.logger.tags,
         allow_val_change=cfg.logger.allow_val_change,
+        settings=wandb.Settings(start_method="thread"),
+        reinit=True,
     )
     
     trainer = Trainer(cfg)

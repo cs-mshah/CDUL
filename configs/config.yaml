@@ -61,7 +61,7 @@ train:
   loss:
     _target_: torchmetrics.regression.KLDivergence
   # warmup epochs before alternate updates
-  warmup: 10
+  warmup: 0
   # frequency (in epochs) while alternating updates of psuedo labels
   pseudo_update_frequency: 10
   sigma: 1
@@ -69,3 +69,6 @@ train:
   resume:
     ckpt_path: null
   max_epochs: 100
+  # stop the run if mAP of pseudo labels is less than initial. Use this for finding hparams
+  early_stopping:
+    epochs: 10
